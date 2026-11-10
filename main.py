@@ -1,4 +1,4 @@
-"""Lumen Moth — a desk lantern that listens to rhythm, never to words.
+"""DeskCompy — a desk lantern that listens to rhythm, never to words.
 
 Run from this folder:
 
