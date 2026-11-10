@@ -1,0 +1,5 @@
+PyQt6>=6.6.0,<7
+pynput>=1.7.7
+
+# Optional, only when you package the app:
+# pyinstaller>=6.0
