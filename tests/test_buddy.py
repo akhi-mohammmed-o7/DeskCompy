@@ -61,8 +61,8 @@ class ActivityTests(unittest.TestCase):
 
 class RosterTests(unittest.TestCase):
     def test_five_distinct_buddies_and_a_wrapping_next(self) -> None:
-        self.assertEqual(len(CHARACTER_ORDER), 5)
-        self.assertEqual(len(set(CHARACTER_ORDER)), 5)
+        self.assertEqual(len(CHARACTER_ORDER), 8)
+        self.assertEqual(len(set(CHARACTER_ORDER)), 8)
         for key in CHARACTER_ORDER:
             self.assertIn(key, CHARACTERS)
             self.assertTrue(CHARACTERS[key].name)

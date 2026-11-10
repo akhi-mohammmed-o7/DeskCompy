@@ -78,9 +78,39 @@ CHARACTERS: dict[str, Character] = {
         trim=(150, 78, 110),
         accent=(255, 232, 240),
     ),
+    "dog": Character(
+        key="dog",
+        name="Rex",
+        species="desk dog",
+        tagline="loyal, loud, easily distracted by squirrels",
+        body=(214, 178, 138),
+        trim=(92, 64, 44),
+        accent=(255, 196, 120),
+        shape="cat",
+    ),
+    "bunny": Character(
+        key="bunny",
+        name="Pipkin",
+        species="pocket bunny",
+        tagline="ears up, snacks first",
+        body=(246, 232, 244),
+        trim=(120, 92, 132),
+        accent=(255, 180, 210),
+        shape="frog",
+    ),
+    "owl": Character(
+        key="owl",
+        name="Hoot",
+        species="study owl",
+        tagline="wise enough to nap during your study breaks",
+        body=(176, 148, 112),
+        trim=(72, 52, 36),
+        accent=(255, 210, 140),
+        shape="moth",
+    ),
 }
 
-BUILTIN_KEYS = ("moth", "cat", "frog", "ghost", "axolotl")
+BUILTIN_KEYS = ("moth", "cat", "frog", "ghost", "axolotl", "dog", "bunny", "owl")
 CHARACTER_ORDER: list[str] = list(BUILTIN_KEYS)
 DEFAULT_CHARACTER = BUILTIN_KEYS[0]
 _CUSTOM_KEYS: set[str] = set()

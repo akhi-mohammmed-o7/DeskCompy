@@ -144,6 +144,15 @@ VOICES: dict[str, dict[str, tuple[str, ...]]] = {
     },
 }
 
+# Extra buddies borrow a body's voice, with a name of their own.
+for _key, _shape, _identity in (
+    ("dog", "cat", ("Rex. Desk dog. I sit, I stay, I steal socks.", "I'm the dog. I'm a very good boy, probably.")),
+    ("bunny", "frog", ("Pipkin! Pocket bunny. Ears up, snacks first.", "I'm the bunny. I hop and I snack.")),
+    ("owl", "moth", ("Hoot. Study owl. I see everything. I nap through most of it.", "I'm the owl. Wise, sleepy, snack-curious.")),
+):
+    VOICES[_key] = {intent: VOICES[_shape][intent] for intent in VOICES[_shape]}
+    VOICES[_key]["identity"] = _identity
+
 FALLBACK = (
     "I'm more of a vibes buddy than a search engine. Ask about studying, games, snacks, or jokes.",
     "I didn't catch that one. My brain is mostly lamp light and enthusiasm.",

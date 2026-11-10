@@ -412,7 +412,7 @@ class TalkBox(QWidget):
         screen = QApplication.screenAt(anchor) or QApplication.primaryScreen()
         geo = screen.availableGeometry() if screen is not None else QRect(0, 0, 1280, 720)
         x = min(max(geo.left() + 8, anchor.x() - self.width() // 2), geo.right() - self.width() - 8)
-        y = min(max(geo.top() + 8, anchor.y() - self.height() - 8), geo.bottom() - self.height() - 8)
+        y = min(max(geo.top() + 8, anchor.y() + 8), geo.bottom() - self.height() - 8)
         self.move(x, y)
         self.show()
         self.raise_()
@@ -580,6 +580,8 @@ class CompanionWindow(QWidget):
         self._late_noted = False
         self._press_at: QPoint | None = None
         self._greeted = False
+        self._look_x = 0.0
+        self._look_y = 0.0
 
         tray_ok = QSystemTrayIcon.isSystemTrayAvailable()
         # A ghost perch with no tray has no way back. Refuse that lock-out.
@@ -641,7 +643,7 @@ class CompanionWindow(QWidget):
         self.act_show.triggered.connect(lambda *_: self._bring_back())
         self.act_focus = QAction("Start Focus Timer (25 min)", self)
         self.act_focus.triggered.connect(lambda *_: self._toggle_focus())
-        self.act_veil = QAction("Dim the room", self)
+        self.act_veil = QAction("Dim the lights", self)
         self.act_veil.setCheckable(True)
         self.act_veil.setChecked(self.settings.veil)
         self.act_veil.setToolTip(
@@ -677,9 +679,6 @@ class CompanionWindow(QWidget):
         self.act_dance.triggered.connect(lambda *_: self._dance())
         self.act_customize = QAction("Customize…", self)
         self.act_customize.triggered.connect(lambda *_: self._customize())
-        self.act_add_buddy = QAction("Add your own buddy…", self)
-        self.act_add_buddy.setToolTip("Open the buddy folder and show the manifest format.")
-        self.act_add_buddy.triggered.connect(lambda *_: self._open_buddy_folder())
         self.act_reload = QAction("Reload custom buddies", self)
         self.act_reload.triggered.connect(lambda *_: self._reload_custom())
 
@@ -748,7 +747,6 @@ class CompanionWindow(QWidget):
             buddies.addAction(action)
         buddies.addSeparator()
         buddies.addAction(self.act_next_buddy)
-        buddies.addAction(self.act_add_buddy)
         buddies.addAction(self.act_reload)
         activity = menu.addMenu("Activity")
         activity.setStyleSheet(MENU_QSS)
@@ -839,7 +837,7 @@ class CompanionWindow(QWidget):
         self.act_mute.setChecked(self.settings.muted)
         self.act_ghost.setChecked(self.settings.click_through)
         self.act_clear.setEnabled(bool(self.settings.intention))
-        self.act_veil.setEnabled(self.rituals.focus_active())
+        self.act_veil.setEnabled(True)
         self.act_veil.setChecked(self._veil.isVisible())
         if self._tray is not None:
             week = glimmer.week_minutes(self.settings)
@@ -882,9 +880,12 @@ class CompanionWindow(QWidget):
             checked = self.act_veil.isChecked()
         self.settings.veil = bool(checked)
         self._save()
-        if checked and self.rituals.focus_active():
+        if checked:
+            if not self.rituals.focus_active():
+                self.rituals.start_focus()
+                self._speak("focus_start", force=True)
             self._show_veil()
-        elif not checked:
+        else:
             self._veil.lift()
         self._refresh_labels()
         self.update()
@@ -967,7 +968,7 @@ class CompanionWindow(QWidget):
 
     def _open_talk(self) -> None:
         self._talk.open_at(
-            self.mapToGlobal(QPoint(self.width() // 2, 12)),
+            self.mapToGlobal(QPoint(self.width() // 2, self.height())),
             self._display_name(),
             continuous=True,
         )
@@ -1219,6 +1220,13 @@ class CompanionWindow(QWidget):
         now = time.monotonic()
         dt = min(0.12, max(0.0, now - self._last_tick))
         self._last_tick = now
+        try:
+            center = self.mapToGlobal(QPoint(self.width() // 2, BODY_Y))
+            pos = QCursor.pos()
+            self._look_x = max(-1.0, min(1.0, (pos.x() - center.x()) / 140.0))
+            self._look_y = max(-1.0, min(1.0, (pos.y() - center.y()) / 140.0))
+        except Exception:
+            pass
         visual = self._visual()
         step = {
             SLEEPING: 0.7,
@@ -1360,6 +1368,8 @@ class CompanionWindow(QWidget):
             activity=self._activity,
             mirror_typing=self._mirror.typing,
             mirror_clicking=self._mirror.clicking,
+            look_x=self._look_x,
+            look_y=self._look_y,
             mirror=self._mirror if self.settings.mirror_particles else None,
             history=glimmer.week(self.settings),
             display_name=self._display_name(),
@@ -1376,8 +1386,7 @@ class CompanionWindow(QWidget):
             return True
         if QRect(14, self.height() - 72, self.width() - 28, 60).contains(local):
             return True
-        # The tiny desk is part of the perch, not empty desktop.
-        return QRect(8, self.height() - 92, self.width() - 16, 28).contains(local)
+        return False
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton and self._contains(event.position().toPoint()):

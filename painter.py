@@ -99,6 +99,8 @@ def paint_scene(
     activity: str = CHILL,
     mirror_typing: float = 0.0,
     mirror_clicking: float = 0.0,
+    look_x: float = 0.0,
+    look_y: float = 0.0,
     mirror: Mirror | None = None,
     history: list[tuple[str, float, bool]] | None = None,
     display_name: str | None = None,
@@ -126,7 +128,6 @@ def paint_scene(
     painter.translate(-cx, -cy)
 
     _draw_shadow(painter, cx, cy + 46, visual)
-    _draw_workstation(painter, cx, cy, colors, visual)
     _draw_halo(painter, cx, cy + 4, colors, visual, glow, celebrate)
     shift_x, shift_y, opacity = _idle_motion(buddy.body_shape, phase, visual, animate)
     painter.save()
@@ -149,6 +150,8 @@ def paint_scene(
             glow,
             mirror_typing,
             _mood(visual, activity),
+            look_x=look_x,
+            look_y=look_y,
         )
         _draw_prop(painter, activity, buddy, colors, cx, cy + 32, phase)
         _draw_idle_extras(painter, buddy, colors, cx, cy, phase, animate, visual)
@@ -308,20 +311,22 @@ def _draw_character(
     glow: float,
     typing: float,
     mood: str = "happy",
+    look_x: float = 0.0,
+    look_y: float = 0.0,
 ) -> None:
     shape = buddy.body_shape
     if shape == "moth":
-        _draw_moth(painter, colors, cx, cy, visual, phase, glow, mood)
+        _draw_moth(painter, colors, cx, cy, visual, phase, glow, mood, typing, look_x, look_y)
     elif shape == "cat":
-        _draw_cat(painter, buddy, cx, cy, visual, phase, typing, mood)
+        _draw_cat(painter, buddy, cx, cy, visual, phase, typing, mood, look_x, look_y)
     elif shape == "frog":
-        _draw_frog(painter, buddy, cx, cy, visual, phase, typing, mood)
+        _draw_frog(painter, buddy, cx, cy, visual, phase, typing, mood, look_x, look_y)
     elif shape == "ghost":
-        _draw_ghost(painter, buddy, cx, cy, visual, phase, typing, mood)
+        _draw_ghost(painter, buddy, cx, cy, visual, phase, typing, mood, look_x, look_y)
     elif shape == "axolotl":
-        _draw_axolotl(painter, buddy, cx, cy, visual, phase, typing, mood)
+        _draw_axolotl(painter, buddy, cx, cy, visual, phase, typing, mood, look_x, look_y)
     else:
-        _draw_moth(painter, colors, cx, cy, visual, phase, glow, mood)
+        _draw_moth(painter, colors, cx, cy, visual, phase, glow, mood, typing, look_x, look_y)
 
 
 def _blink(phase: float, rate: float = 0.38) -> bool:
@@ -343,44 +348,6 @@ def _draw_sleep_marks(
         alpha = int(150 * max(0.0, 1.0 - drift / 3.0))
         painter.setPen(QColor(accent[0], accent[1], accent[2], alpha))
         painter.drawText(QPointF(x + 6 + index * 4 + drift * 1.2, y - index * 7 - drift * 2.4), "z")
-
-
-def _draw_workstation(
-    painter: QPainter,
-    cx: float,
-    cy: float,
-    colors: dict[str, tuple[int, int, int]],
-    visual: str,
-) -> None:
-    """A tiny desk so the perch feels like a real workstation."""
-    painter.save()
-    desk_y = cy + 58
-    # Desk surface.
-    painter.setPen(QPen(_qc(colors["plate"], 80), 1.0))
-    painter.setBrush(_qc((92, 62, 40), 210))
-    painter.drawRoundedRect(QRectF(cx - 78, desk_y, 156, 12), 4, 4)
-    # Legs.
-    painter.setBrush(_qc((70, 48, 32), 230))
-    for x in (-62, 62):
-        painter.drawRoundedRect(QRectF(cx + x - 3, desk_y + 10, 6, 18), 2, 2)
-    # Monitor.
-    painter.setBrush(_qc((34, 34, 46), 235))
-    painter.setPen(QPen(_qc(colors["edge"], 120), 1.0))
-    painter.drawRoundedRect(QRectF(cx - 26, desk_y - 34, 52, 30), 4, 4)
-    painter.setBrush(_qc(colors["core"], 95 if visual != SLEEPING else 45))
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.drawRoundedRect(QRectF(cx - 22, desk_y - 30, 44, 22), 3, 3)
-    # Stand and keyboard.
-    painter.setBrush(_qc((52, 42, 34), 230))
-    painter.drawRoundedRect(QRectF(cx - 3, desk_y - 4, 6, 8), 1, 1)
-    painter.drawRoundedRect(QRectF(cx - 34, desk_y - 2, 68, 7), 2, 2)
-    # A tiny lamp, because it is a desk companion.
-    painter.setPen(QPen(_qc(colors["edge"], 180), 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-    painter.drawLine(QPointF(cx + 46, desk_y), QPointF(cx + 52, desk_y - 16))
-    painter.setBrush(_qc(colors["core"], 170))
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.drawEllipse(QPointF(cx + 52, desk_y - 18), 3.2, 3.2)
-    painter.restore()
 
 
 def _draw_shadow(painter: QPainter, cx: float, y: float, visual: str) -> None:
@@ -439,6 +406,9 @@ def _draw_moth(
     phase: float,
     glow: float,
     mood: str = "happy",
+    typing: float = 0.0,
+    look_x: float = 0.0,
+    look_y: float = 0.0,
 ) -> None:
     wing_rgb = colors["wing"] if visual in (WORKING, FOCUS, SCATTER) else colors["wing_calm"]
     if visual == SLEEPING:
@@ -509,8 +479,8 @@ def _draw_moth(
         painter.drawEllipse(QRectF(cx - 8, cy - 18, 4.2, 5.0))
         painter.drawEllipse(QRectF(cx + 3.6, cy - 18, 4.2, 5.0))
         painter.setBrush(_qc(core, 220))
-        painter.drawEllipse(QPointF(cx - 6.2, cy - 16.6), 0.9, 0.9)
-        painter.drawEllipse(QPointF(cx + 5.4, cy - 16.6), 0.9, 0.9)
+        painter.drawEllipse(QPointF(cx - 6.2 + look_x * 1.6, cy - 16.6 + look_y * 1.2), 0.9, 0.9)
+        painter.drawEllipse(QPointF(cx + 5.4 + look_x * 1.6, cy - 16.6 + look_y * 1.2), 0.9, 0.9)
     if mood != "sleep":
         _mood_mouth(painter, cx, cy - 12, mood, colors["text"], colors["core"], 10.0)
     painter.restore()
@@ -592,6 +562,8 @@ def _draw_cat(
     phase: float,
     typing: float,
     mood: str = "happy",
+    look_x: float = 0.0,
+    look_y: float = 0.0,
 ) -> None:
     bob = math.sin(phase * 1.5) * 1.2 + typing * math.sin(phase * 9) * 1.4
     if visual == SLEEPING:
@@ -656,8 +628,8 @@ def _draw_cat(
         painter.drawEllipse(QRectF(cx - 15, cy - 28 + bob, 5.5, eye_h))
         painter.drawEllipse(QRectF(cx + 9.5, cy - 28 + bob, 5.5, eye_h))
         painter.setBrush(QColor(255, 255, 255, 220))
-        painter.drawEllipse(QPointF(cx - 13.4, cy - 26.6 + bob), 1.1, 1.1)
-        painter.drawEllipse(QPointF(cx + 11.1, cy - 26.6 + bob), 1.1, 1.1)
+        painter.drawEllipse(QPointF(cx - 13.4 + look_x * 2.2, cy - 26.6 + bob + look_y * 1.6), 1.1, 1.1)
+        painter.drawEllipse(QPointF(cx + 11.1 + look_x * 2.2, cy - 26.6 + bob + look_y * 1.6), 1.1, 1.1)
 
     # Nose and a tiny omega mouth.
     painter.setPen(Qt.PenStyle.NoPen)
@@ -687,6 +659,8 @@ def _draw_frog(
     phase: float,
     typing: float,
     mood: str = "happy",
+    look_x: float = 0.0,
+    look_y: float = 0.0,
 ) -> None:
     bob = math.sin(phase * 1.7) * 1.1 + typing * math.sin(phase * 8) * 1.2
     if visual == SLEEPING:
@@ -739,9 +713,10 @@ def _draw_frog(
         shift = 0.0
         if visual == SCATTER:
             shift = math.sin(phase * 6.0) * 2.4
-        painter.drawEllipse(QRectF(ex - 3.6 + shift, cy - 29 + bob, 7.2, 7.2))
+        shift += look_x * 2.0
+        painter.drawEllipse(QRectF(ex - 3.6 + shift, cy - 29 + bob + look_y * 1.2, 7.2, 7.2))
         painter.setBrush(QColor(255, 255, 255, 235))
-        painter.drawEllipse(QPointF(ex - 1.6 + shift, cy - 27 + bob), 1.5, 1.5)
+        painter.drawEllipse(QPointF(ex - 1.6 + shift, cy - 27 + bob + look_y * 1.2), 1.5, 1.5)
 
     # Mouth.
     width = 18 if visual != SCATTER else 22
@@ -766,6 +741,8 @@ def _draw_ghost(
     phase: float,
     typing: float,
     mood: str = "happy",
+    look_x: float = 0.0,
+    look_y: float = 0.0,
 ) -> None:
     bob = math.sin(phase * 1.3) * 2.2 + typing * math.sin(phase * 7) * 1.0
     body = buddy.body
@@ -808,8 +785,8 @@ def _draw_ghost(
         painter.drawEllipse(QRectF(cx - 13, cy - 26 + bob, eye_w, 8.0))
         painter.drawEllipse(QRectF(cx + 7, cy - 26 + bob, eye_w, 8.0))
         painter.setBrush(QColor(255, 255, 255, 235))
-        painter.drawEllipse(QPointF(cx - 11 + 1, cy - 24 + bob), 1.2, 1.2)
-        painter.drawEllipse(QPointF(cx + 9 + 1, cy - 24 + bob), 1.2, 1.2)
+        painter.drawEllipse(QPointF(cx - 11 + 1 + look_x * 2.0, cy - 24 + bob + look_y * 1.4), 1.2, 1.2)
+        painter.drawEllipse(QPointF(cx + 9 + 1 + look_x * 2.0, cy - 24 + bob + look_y * 1.4), 1.2, 1.2)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         mouth_w = 10 if visual != SCATTER else 13
         _mood_mouth(painter, cx, cy - 12 + bob, mood, trim, accent, float(mouth_w))
@@ -832,6 +809,8 @@ def _draw_axolotl(
     phase: float,
     typing: float,
     mood: str = "happy",
+    look_x: float = 0.0,
+    look_y: float = 0.0,
 ) -> None:
     bob = math.sin(phase * 1.5) * 1.2 + typing * math.sin(phase * 9) * 1.3
     if visual == SLEEPING:
@@ -890,7 +869,7 @@ def _draw_axolotl(
             painter.setBrush(QColor(52, 34, 48, 245))
             painter.drawEllipse(QRectF(ex - 3.4, cy - 27 + bob, 6.8, 7.6))
             painter.setBrush(QColor(255, 255, 255, 230))
-            painter.drawEllipse(QPointF(ex - 1.4, cy - 25 + bob), 1.2, 1.2)
+            painter.drawEllipse(QPointF(ex - 1.4 + look_x * 1.8, cy - 25 + bob + look_y * 1.2), 1.2, 1.2)
     # Smile.
     _mood_mouth(painter, cx, cy - 12 + bob, mood, trim, accent, 14.0)
 

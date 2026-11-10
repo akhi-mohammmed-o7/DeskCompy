@@ -486,6 +486,16 @@ LINES: dict[str, dict[str, tuple[str, ...]]] = {
     },
 }
 
+# Extra buddies borrow a body's voice, with a name of their own.
+for _key, _shape, _meet in (
+    ("dog", "cat", "Rex. Desk dog. I brought the tail wags."),
+    ("bunny", "frog", "Pipkin! Bunny. Ears up, ready to hop."),
+    ("owl", "moth", "Hoot. Study owl. I'm watching, and napping, and watching."),
+):
+    _lines = {situation: LINES[_shape][situation] for situation in SITUATIONS}
+    _lines["meet"] = (_meet,)
+    LINES[_key] = _lines
+
 # Used only if a future character forgets a situation. Keeps the buddy talking.
 COMMON: dict[str, tuple[str, ...]] = {
     "meet": ("Hi. I'm here now. We're doing this together.",),
