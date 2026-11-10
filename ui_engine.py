@@ -40,6 +40,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
+    QPlainTextEdit,
     QPushButton,
     QSystemTrayIcon,
     QVBoxLayout,
@@ -126,13 +127,16 @@ class LanternNote(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setWindowFlag(Qt.WindowType.WindowTransparentForInput, True)
         self._text = ""
         self._name = ""
+        self._tail_side = "left"
         self._accent = QColor(255, 186, 122)
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.hide)
-        self.setFixedSize(238, 70)
+        self.setFixedSize(210, 60)
 
     def present(
         self,
@@ -146,20 +150,29 @@ class LanternNote(QWidget):
         self._accent = QColor(*accent)
         screen = QApplication.screenAt(anchor) or QApplication.primaryScreen()
         geo = screen.availableGeometry() if screen is not None else QRect(0, 0, 1280, 720)
-        x = min(max(geo.left() + 8, anchor.x() - self.width() // 2), geo.right() - self.width() - 8)
-        y = anchor.y() - self.height() - 4
-        if y < geo.top() + 4:
-            y = min(geo.bottom() - self.height() - 8, anchor.y() + 24)
+        # Keep the toast beside the buddy instead of over its face. It is
+        # deliberately small, short-lived, and click-through so it cannot
+        # steal input from the work underneath it.
+        half_buddy = CANVAS_W // 2
+        right_x = anchor.x() + half_buddy + 10
+        left_x = anchor.x() - half_buddy - self.width() - 10
+        x = right_x if right_x + self.width() <= geo.right() - 8 else left_x
+        x = min(max(geo.left() + 8, x), geo.right() - self.width() - 8)
+        self._tail_side = "left" if x >= anchor.x() else "right"
+        y = anchor.y() - self.height() // 2
+        y = min(max(geo.top() + 8, y), geo.bottom() - self.height() - 8)
         self.move(x, y)
         self.show()
         self.raise_()
         self.update()
-        self._timer.start(5200)
+        self._timer.start(3600)
 
     def paintEvent(self, _event) -> None:  # noqa: N802
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        bubble = QRectF(1, 1, self.width() - 2, self.height() - 11)
+        inset = 8 if self._tail_side == "left" else 1
+        far_inset = 8 if self._tail_side == "right" else 1
+        bubble = QRectF(inset, 1, self.width() - inset - far_inset, self.height() - 2)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(22, 16, 34, 232))
         painter.drawRoundedRect(bubble, 13, 13)
@@ -167,13 +180,15 @@ class LanternNote(QWidget):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(bubble, 13, 13)
 
-        tail = QPolygonF(
-            [
-                QPointF(self.width() / 2 - 7, bubble.bottom() - 1),
-                QPointF(self.width() / 2 + 7, bubble.bottom() - 1),
-                QPointF(self.width() / 2, self.height() - 1),
-            ]
-        )
+        tail_y = self.height() / 2
+        if self._tail_side == "left":
+            tail = QPolygonF([QPointF(bubble.left() + 1, tail_y - 7),
+                              QPointF(bubble.left() + 1, tail_y + 7),
+                              QPointF(1, tail_y)])
+        else:
+            tail = QPolygonF([QPointF(bubble.right() - 1, tail_y - 7),
+                              QPointF(bubble.right() - 1, tail_y + 7),
+                              QPointF(self.width() - 1, tail_y)])
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(22, 16, 34, 232))
         painter.drawPolygon(tail)
@@ -184,7 +199,7 @@ class LanternNote(QWidget):
         painter.setFont(name_font)
         painter.setPen(self._accent)
         painter.drawText(
-            QRectF(13, 5, self.width() - 26, 13),
+            QRectF(12, 4, self.width() - 24, 13),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
             self._name.upper(),
         )
@@ -192,7 +207,7 @@ class LanternNote(QWidget):
         painter.setPen(QColor(255, 244, 232))
         painter.setFont(QFont("Segoe UI", 9))
         painter.drawText(
-            QRectF(13, 18, self.width() - 26, self.height() - 36),
+            QRectF(12, 18, self.width() - 24, self.height() - 25),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap,
             self._text,
         )
@@ -363,7 +378,7 @@ class WhisperBox(QWidget):
 
 
 class TalkBox(QWidget):
-    """A one-line question box. The text is matched, answered, and forgotten."""
+    """A compact, temporary conversation with the current buddy."""
 
     def __init__(self, on_done) -> None:
         super().__init__(None)
@@ -375,44 +390,73 @@ class TalkBox(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
-        self.setFixedSize(370, 62)
+        self.setFixedSize(390, 292)
         self._on_done = on_done
-        self._continuous = False
+        self._buddy_name = "Buddy"
+        self._title = QLabel(self)
+        self._title.setGeometry(16, 12, 278, 25)
+        self._title.setStyleSheet("color:#fff3e5; font: 600 11pt 'Segoe UI';")
+        self._history = QPlainTextEdit(self)
+        self._history.setGeometry(14, 47, 362, 184)
+        self._history.setReadOnly(True)
+        self._history.setMaximumBlockCount(48)
+        self._history.setStyleSheet(
+            "QPlainTextEdit { background:rgba(255,255,255,0.035); color:#f6f1e8;"
+            " border:1px solid rgba(255,214,160,35); border-radius:10px;"
+            " padding:8px; font:10pt 'Segoe UI'; selection-background-color:#765078; }"
+        )
         self._edit = QLineEdit(self)
-        self._edit.setGeometry(14, 12, 296, 38)
+        self._edit.setGeometry(14, 242, 282, 36)
         self._edit.setMaxLength(MAX_QUESTION)
         self._edit.returnPressed.connect(self._commit)
+        self._edit.setPlaceholderText("Type a short message…")
         self._edit.setStyleSheet(
             "QLineEdit {"
             " background: rgba(255, 255, 255, 0.06);"
             " color: #fff6ea;"
-            " border: none;"
-            " border-radius: 9px;"
+            " border: 1px solid rgba(255,214,160,45);"
+            " border-radius: 10px;"
             " padding: 4px 10px;"
             " font: 10pt 'Segoe UI';"
             "}"
         )
-        self._end = QPushButton("End", self)
-        self._end.setGeometry(316, 14, 42, 34)
+        self._send = QPushButton("Send", self)
+        self._send.setGeometry(304, 242, 72, 36)
+        self._send.clicked.connect(self._commit)
+        self._send.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._send.setStyleSheet(
+            "QPushButton { background:rgba(255,186,122,50); color:#fff6ea;"
+            " border:1px solid rgba(255,214,160,85); border-radius:10px;"
+            " font:600 9pt 'Segoe UI'; }"
+            "QPushButton:hover { background:rgba(255,186,122,90); }"
+        )
+        self._end = QPushButton("×", self)
+        self._end.setGeometry(344, 9, 34, 30)
+        self._end.setToolTip("Close conversation")
         self._end.setCursor(Qt.CursorShape.PointingHandCursor)
         self._end.setStyleSheet(
             "QPushButton {"
-            " background: rgba(255, 120, 120, 55); color: #fff6ea;"
-            " border: 1px solid rgba(255, 214, 160, 80); border-radius: 8px;"
-            " font: 9pt 'Segoe UI';"
+            " background: rgba(255, 120, 120, 40); color: #fff6ea;"
+            " border: 1px solid rgba(255, 214, 160, 55); border-radius: 9px;"
+            " font: 14pt 'Segoe UI';"
             "}"
             "QPushButton:hover { background: rgba(255, 120, 120, 95); }"
         )
         self._end.clicked.connect(self._end_chat)
 
-    def open_at(self, anchor: QPoint, buddy_name: str, *, continuous: bool = False) -> None:
-        self._continuous = continuous
+    def open_at(self, anchor: QPoint, buddy_name: str) -> None:
+        self._buddy_name = buddy_name
+        self._title.setText(f"A little chat with {buddy_name}")
+        self._history.clear()
+        self._history.appendPlainText(f"{buddy_name}: Hi! What are you thinking about?")
         self._edit.clear()
-        self._edit.setPlaceholderText(f"Ask {buddy_name} something…")
         screen = QApplication.screenAt(anchor) or QApplication.primaryScreen()
         geo = screen.availableGeometry() if screen is not None else QRect(0, 0, 1280, 720)
         x = min(max(geo.left() + 8, anchor.x() - self.width() // 2), geo.right() - self.width() - 8)
-        y = min(max(geo.top() + 8, anchor.y() + 8), geo.bottom() - self.height() - 8)
+        below = anchor.y() + 12
+        above = anchor.y() - self.height() - 10
+        y = below if below + self.height() <= geo.bottom() - 8 else above
+        y = min(max(geo.top() + 8, y), geo.bottom() - self.height() - 8)
         self.move(x, y)
         self.show()
         self.raise_()
@@ -426,8 +470,9 @@ class TalkBox(QWidget):
         super().keyPressEvent(event)
 
     def hideEvent(self, event) -> None:  # noqa: N802
-        # Nothing typed stays in the widget after it closes.
+        # A conversation is only kept in this panel and discarded when closed.
         self._edit.clear()
+        self._history.clear()
         super().hideEvent(event)
 
     def paintEvent(self, _event) -> None:  # noqa: N802
@@ -439,17 +484,22 @@ class TalkBox(QWidget):
         painter.end()
 
     def _commit(self) -> None:
-        text = self._edit.text()
+        text = clean_text(self._edit.text(), MAX_QUESTION)
+        if not text:
+            self._edit.clear()
+            return
         self._edit.clear()
-        self._on_done(text)
-        if not self._continuous:
-            self.hide()
+        self._history.appendPlainText(f"You: {text}")
+        answer = self._on_done(text)
+        if answer:
+            self._history.appendPlainText(f"{self._buddy_name}: {answer}")
         else:
-            self.raise_()
-            self._edit.setFocus()
+            self._history.appendPlainText(
+                f"{self._buddy_name}: I got a little tangled. Try one short question?"
+            )
+        self._edit.setFocus()
 
     def _end_chat(self) -> None:
-        self._continuous = False
         self._edit.clear()
         self.hide()
 
@@ -509,7 +559,7 @@ class CustomizeDialog(QDialog):
         layout.addLayout(form)
 
         self.auto_talk = QCheckBox("Occasional small talk while you work")
-        self.auto_talk.setChecked(bool(values.get("auto_talk", True)))
+        self.auto_talk.setChecked(bool(values.get("auto_talk", False)))
         layout.addWidget(self.auto_talk)
         self.animations = QCheckBox("Let the buddy fidget and fly about")
         self.animations.setChecked(bool(values.get("idle_animations", True)))
@@ -575,7 +625,6 @@ class CompanionWindow(QWidget):
         self._ambient_at = time.monotonic()
         self._last_pulse_at = time.monotonic()
         self._next_smalltalk_at = time.monotonic() + 45.0
-        self._last_talk_at = 0.0
         self._long_noted = False
         self._late_noted = False
         self._press_at: QPoint | None = None
@@ -619,7 +668,7 @@ class CompanionWindow(QWidget):
         self.rituals.updated.connect(self._on_rituals_updated)
 
         self._anim = QTimer(self)
-        self._anim.setInterval(33)
+        self._anim.setInterval(90)
         self._anim.timeout.connect(self._tick)
         self._anim.start()
 
@@ -970,20 +1019,11 @@ class CompanionWindow(QWidget):
         self._talk.open_at(
             self.mapToGlobal(QPoint(self.width() // 2, self.height())),
             self._display_name(),
-            continuous=True,
         )
 
-    def _answer_question(self, text: str) -> None:
-        """Match, answer, and forget. The typed line is never saved or logged."""
-        now = time.monotonic()
-        if now - self._last_talk_at < 0.6:
-            return
-        answer = converse_reply(self.settings.character, text, self._rng)
-        if not answer:
-            return
-        self._last_talk_at = now
-        self._say(answer)
-        self.update()
+    def _answer_question(self, text: str) -> str | None:
+        """Return a local canned reply; the chat panel clears when closed."""
+        return converse_reply(self.settings.character, text, self._rng)
 
     def _pin_activity(self, mode: str, _checked: bool = False) -> None:
         if mode not in ("auto", STUDY, GAMING, WORK, CHILL):
@@ -1126,12 +1166,6 @@ class CompanionWindow(QWidget):
                 self._mirror.typed(keys)
             if clicks > 0:
                 self._mirror.clicked()
-        if not self.rituals.focus_active():
-            # These counts cover a quarter second, not the five second window.
-            if clicks >= 2:
-                self._speak("click")
-            elif keys >= 4:
-                self._speak("type")
         self.update()
 
     def _poke(self) -> None:
@@ -1185,7 +1219,7 @@ class CompanionWindow(QWidget):
             return
         self._pending_line = None
         buddy = get_character(self.settings.character)
-        anchor = self.mapToGlobal(QPoint(self.width() // 2, 8))
+        anchor = self.mapToGlobal(QPoint(self.width() // 2, BODY_Y + 2))
         self._note.present(self._display_name(), text, buddy.accent, anchor)
 
     def _save(self) -> None:
@@ -1236,11 +1270,15 @@ class CompanionWindow(QWidget):
             FOCUS: 1.2,
         }.get(visual, 1.5)
         self._phase = (self._phase + step * dt * 3.2) % 628.0
-        interval = 110 if visual == SLEEPING else 33
+        if visual == SLEEPING:
+            interval = 180
+        elif visual == CALM and not self._mirror.busy and self._celebrate() <= 0:
+            interval = 90
+        else:
+            interval = 50
         if self._anim.interval() != interval:
             self._anim.setInterval(interval)
         self._mirror.advance(dt)
-        self._sprites.refresh_if_due()
         self._note_glimmer()
         # If the hooks are blocked or the tracker stops, no pulses arrive. The
         # buddy should still fall asleep after five quiet minutes.
@@ -1378,6 +1416,11 @@ class CompanionWindow(QWidget):
         painter.end()
 
     def _contains(self, local: QPoint) -> bool:
+        shape = get_character(self.settings.character).body_shape
+        if shape == "bunny" and QRect(self.width() // 2 - 31, 5, 62, BODY_Y + 8).contains(local):
+            return True
+        if shape == "owl" and QRect(self.width() // 2 - 44, 28, 88, BODY_Y + 26).contains(local):
+            return True
         cx = self.width() / 2
         cy = BODY_Y + 2
         dx = (local.x() - cx) / 76
@@ -1545,15 +1588,14 @@ class CompanionWindow(QWidget):
 
     def nativeEvent(self, event_type, message):  # noqa: N802
         if sys.platform == "win32":
-            try:
-                kind = bytes(event_type)
-            except Exception:
-                kind = b""
-            if kind == b"windows_generic_MSG":
+            if event_type == b"windows_generic_MSG":
                 try:
                     msg = ctypes.wintypes.MSG.from_address(int(message))
                     if msg.message == WM_NCHITTEST:
-                        local = self.mapFromGlobal(QCursor.pos())
+                        # Use the point already present in this message. Asking
+                        # Windows for the cursor again on every hit-test adds
+                        # needless work and can re-enter Qt's message pump.
+                        local = self.mapFromGlobal(QPoint(msg.pt.x, msg.pt.y))
                         if self.settings.click_through or not self._contains(local):
                             return True, HTTRANSPARENT
                 except Exception:

@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "DeskCompy"
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 
 
 def is_frozen() -> bool:

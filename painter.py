@@ -1,6 +1,6 @@
 """Draw the buddy, its little desk, and the plate beneath it.
 
-Five characters are drawn in vectors, so the app stays image-free and every
+Eight characters are drawn in vectors, so the app stays image-free and every
 one of them can blink, breathe, slump, and bounce. A dropped image in
 ``assets`` still replaces the body and leaves the glow, focus ring, dew drop,
 mirror particles, and caption in place.
@@ -35,16 +35,18 @@ BODY_Y = 86
 PLATE_MARGIN = 14
 
 
-def _mood(visual: str, activity: str) -> str:
-    """A face for the moment: happy, serious, sad, or crying."""
+def _mood(visual: str, activity: str, phase: float, typing: float) -> str:
+    """Choose a face that follows the buddy's pace instead of staying fixed."""
     if visual == SLEEPING:
         return "sleep"
-    if activity == AWAY:
-        return "cry" if visual == SLEEPING else "sad"
+    if visual == FOCUS:
+        return "serious"
     if activity in (STUDY, WORK):
         return "serious"
     if activity == GAMING or visual == SCATTER:
-        return "happy"
+        return "excited" if math.sin(phase * 1.7) > 0.0 else "happy"
+    if typing > 0.55 or math.sin(phase * 0.16) > 0.94:
+        return "curious"
     return "happy"
 
 
@@ -62,6 +64,16 @@ def _mood_mouth(
     if mood == "happy":
         painter.setPen(QPen(_qc(trim, 220), 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         painter.drawArc(QRectF(cx - width / 2, cy - 2, width, 8), 200 * 16, 140 * 16)
+    elif mood == "excited":
+        painter.setPen(QPen(_qc(trim, 220), 1.0))
+        painter.setBrush(_qc(accent, 245))
+        painter.drawEllipse(QRectF(cx - width * 0.28, cy - 2, width * 0.56, 7.0))
+    elif mood == "curious":
+        painter.setPen(QPen(_qc(trim, 225), 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawArc(QRectF(cx - width / 2, cy - 2, width * 0.75, 6), 205 * 16, 120 * 16)
+    elif mood == "sleep":
+        painter.setPen(QPen(_qc(trim, 180), 1.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawArc(QRectF(cx - width * 0.28, cy - 1, width * 0.56, 4), 195 * 16, 145 * 16)
     elif mood == "serious":
         painter.setPen(QPen(_qc(trim, 220), 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         painter.drawLine(QPointF(cx - width / 2 + 1, cy), QPointF(cx + width / 2 - 1, cy))
@@ -149,7 +161,7 @@ def paint_scene(
             phase,
             glow,
             mirror_typing,
-            _mood(visual, activity),
+            _mood(visual, activity, phase, mirror_typing),
             look_x=look_x,
             look_y=look_y,
         )
@@ -214,6 +226,12 @@ def _idle_motion(shape: str, phase: float, visual: str, animate: bool) -> tuple[
     if shape == "cat":
         # A small pounce toward the yarn, then back to the loaf.
         return -envelope * 5.0, -envelope * 2.0, 1.0
+    if shape == "dog":
+        return -envelope * 4.0, -envelope * 5.0, 1.0
+    if shape == "bunny":
+        return 0.0, -envelope * 12.0, 1.0
+    if shape == "owl":
+        return math.sin(phase * 0.6) * 1.5, -envelope * 3.0, 1.0
     return 0.0, 0.0, 1.0
 
 
@@ -289,6 +307,35 @@ def _draw_idle_extras(
                 2.6 - index * 0.4,
                 2.6 - index * 0.4,
             )
+    elif shape == "dog" and envelope > 0.05:
+        # A tiny tennis ball that bounces when the dog gets the zoomies.
+        bounce = abs(math.sin(phase * 3.0)) * envelope * 8.0
+        bx, by = cx + 43, cy + 35 - bounce
+        painter.setPen(QPen(_qc(buddy.trim, 190), 0.8))
+        painter.setBrush(_qc((155, 211, 128), 235))
+        painter.drawEllipse(QPointF(bx, by), 5.0, 5.0)
+        painter.setPen(QPen(_qc((245, 250, 220), 190), 0.8))
+        painter.drawArc(QRectF(bx - 3, by - 4, 6, 8), 70 * 16, 220 * 16)
+    elif shape == "bunny" and envelope > 0.05:
+        # Two carrot-like twinkles pop up beside the ears on a happy hop.
+        for sign in (-1, 1):
+            x, y = cx + sign * 42, cy - 47 - envelope * 8
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(_qc((255, 190, 105), int(210 * envelope)))
+            painter.drawEllipse(QPointF(x, y), 2.0, 3.2)
+            painter.setPen(QPen(_qc((111, 154, 91), int(190 * envelope)), 0.8))
+            painter.drawLine(QPointF(x, y - 3), QPointF(x + sign * 2, y - 5))
+    elif shape == "owl" and envelope > 0.05:
+        # A drifting feather makes the owl's slow, floaty idle visibly its own.
+        x = cx + 45 + math.sin(phase * 1.2) * 4
+        y = cy - 17 - envelope * 7
+        feather = QPainterPath()
+        feather.moveTo(x, y - 5)
+        feather.quadTo(x + 8, y, x, y + 6)
+        feather.quadTo(x - 5, y, x, y - 5)
+        painter.setPen(QPen(_qc(buddy.trim, int(130 * envelope)), 0.8))
+        painter.setBrush(_qc(buddy.accent, int(160 * envelope)))
+        painter.drawPath(feather)
     elif shape == "ghost" and envelope > 0.05:
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(_qc(colors["ring"], int(80 * envelope)), 0.9))
@@ -319,6 +366,12 @@ def _draw_character(
         _draw_moth(painter, colors, cx, cy, visual, phase, glow, mood, typing, look_x, look_y)
     elif shape == "cat":
         _draw_cat(painter, buddy, cx, cy, visual, phase, typing, mood, look_x, look_y)
+    elif shape == "dog":
+        _draw_dog(painter, buddy, cx, cy, visual, phase, typing, mood, look_x, look_y)
+    elif shape == "bunny":
+        _draw_bunny(painter, buddy, cx, cy, visual, phase, typing, mood, look_x, look_y)
+    elif shape == "owl":
+        _draw_owl(painter, buddy, cx, cy, visual, phase, typing, mood, look_x, look_y)
     elif shape == "frog":
         _draw_frog(painter, buddy, cx, cy, visual, phase, typing, mood, look_x, look_y)
     elif shape == "ghost":
@@ -648,6 +701,336 @@ def _draw_cat(
 
     if visual == SLEEPING:
         _draw_sleep_marks(painter, cx + 18, cy - 34, accent, phase)
+
+
+def _draw_dog(
+    painter: QPainter,
+    buddy: Character,
+    cx: float,
+    cy: float,
+    visual: str,
+    phase: float,
+    typing: float,
+    mood: str = "happy",
+    look_x: float = 0.0,
+    look_y: float = 0.0,
+) -> None:
+    """A floppy-eared pup with a wagging tail, chest patch, and tiny tongue."""
+    bob = math.sin(phase * 1.8) * 1.0 + typing * math.sin(phase * 7.0) * 1.4
+    if visual == SLEEPING:
+        bob = math.sin(phase * 0.45) * 0.6
+    wag = math.sin(phase * 5.2) * (5.5 if visual != SLEEPING else 1.0)
+    body, trim, accent = buddy.body, buddy.trim, buddy.accent
+
+    painter.setPen(QPen(_qc(trim, 220), 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    painter.setBrush(_qc(body, 255))
+    tail = QPainterPath()
+    tail.moveTo(cx + 24, cy + 13 + bob)
+    tail.cubicTo(cx + 46, cy + 3 + wag, cx + 51, cy - 8 + wag, cx + 43, cy - 15 + wag)
+    painter.drawPath(tail)
+    painter.setPen(Qt.PenStyle.NoPen)
+
+    # Soft floppy ears frame a broad puppy head.
+    for sign in (-1, 1):
+        ear = QPainterPath()
+        ear.moveTo(cx + sign * 22, cy - 31 + bob)
+        ear.cubicTo(cx + sign * 43, cy - 45 + bob, cx + sign * 44, cy - 6 + bob, cx + sign * 31, cy + 1 + bob)
+        ear.cubicTo(cx + sign * 22, cy + 2 + bob, cx + sign * 19, cy - 13 + bob, cx + sign * 22, cy - 31 + bob)
+        painter.setPen(QPen(_qc(trim, 225), 1.5))
+        painter.setBrush(_qc(body, 255))
+        painter.drawPath(ear)
+        inner = QPainterPath()
+        inner.moveTo(cx + sign * 25, cy - 27 + bob)
+        inner.cubicTo(cx + sign * 36, cy - 34 + bob, cx + sign * 37, cy - 9 + bob, cx + sign * 30, cy - 5 + bob)
+        inner.cubicTo(cx + sign * 24, cy - 8 + bob, cx + sign * 23, cy - 18 + bob, cx + sign * 25, cy - 27 + bob)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(_qc(accent, 175))
+        painter.drawPath(inner)
+
+    # Body and cream chest patch.
+    painter.setPen(QPen(_qc(trim, 225), 1.7))
+    painter.setBrush(_qc(body, 255))
+    painter.drawEllipse(QRectF(cx - 32, cy + 2 + bob, 64, 42))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(_qc(accent, 190))
+    painter.drawEllipse(QRectF(cx - 15, cy + 8 + bob, 30, 29))
+    painter.setPen(QPen(_qc(trim, 210), 3.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    painter.drawArc(QRectF(cx - 28, cy - 3 + bob, 56, 30), 205 * 16, 130 * 16)
+    painter.setPen(QPen(_qc((250, 214, 132), 240), 0.8))
+    painter.setBrush(_qc((250, 214, 132), 240))
+    painter.drawEllipse(QPointF(cx, cy + 11 + bob), 3.2, 4.2)
+    for sign in (-1, 1):
+        painter.setBrush(_qc(body, 255))
+        painter.drawEllipse(QRectF(cx + sign * 21 - 8, cy + 31 + bob, 17, 9))
+        painter.setPen(QPen(_qc(trim, 110), 0.8))
+        painter.drawLine(QPointF(cx + sign * 21, cy + 35 + bob), QPointF(cx + sign * 21, cy + 39 + bob))
+
+    # Head, blaze, brows, and soft puppy eyes.
+    painter.setPen(QPen(_qc(trim, 235), 1.8))
+    painter.setBrush(_qc(body, 255))
+    painter.drawEllipse(QRectF(cx - 34, cy - 38 + bob, 68, 58))
+    blaze = QPainterPath()
+    blaze.moveTo(cx - 5, cy - 33 + bob)
+    blaze.quadTo(cx + 1, cy - 22 + bob, cx + 2, cy - 10 + bob)
+    blaze.quadTo(cx, cy - 4 + bob, cx - 6, cy - 8 + bob)
+    blaze.quadTo(cx - 8, cy - 22 + bob, cx - 5, cy - 33 + bob)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(_qc(accent, 155))
+    painter.drawPath(blaze)
+
+    blink = visual == SLEEPING or _blink(phase, 0.31)
+    for sign in (-1, 1):
+        ex = cx + sign * 14
+        painter.setPen(QPen(_qc(trim, 205), 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        if blink:
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawArc(QRectF(ex - 5, cy - 18 + bob, 10, 5), 200 * 16, 140 * 16)
+        else:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(255, 250, 243, 250))
+            painter.drawEllipse(QRectF(ex - 5, cy - 22 + bob, 10, 12))
+            painter.setBrush(QColor(58, 39, 30, 255))
+            shift = max(-1.5, min(1.5, look_x * 1.8))
+            painter.drawEllipse(QPointF(ex + shift, cy - 16 + bob + look_y), 2.7, 3.3)
+            painter.setBrush(QColor(255, 255, 255, 240))
+            painter.drawEllipse(QPointF(ex - 0.8 + shift, cy - 17.5 + bob), 0.9, 1.0)
+        # Friendly raised brows make this face read as a dog, not a cat.
+        painter.setPen(QPen(_qc(trim, 190), 1.3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawLine(QPointF(ex - 4, cy - 25 + bob), QPointF(ex + 3, cy - 27 + bob))
+
+    # Wide muzzle, shiny nose, and a little panting tongue.
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(_qc(accent, 240))
+    painter.drawEllipse(QRectF(cx - 15, cy - 9 + bob, 30, 16))
+    nose = QPainterPath()
+    nose.moveTo(cx - 4, cy - 12 + bob)
+    nose.quadTo(cx, cy - 15 + bob, cx + 4, cy - 12 + bob)
+    nose.quadTo(cx + 3, cy - 6 + bob, cx, cy - 6 + bob)
+    nose.quadTo(cx - 3, cy - 6 + bob, cx - 4, cy - 12 + bob)
+    painter.setBrush(_qc(trim, 255))
+    painter.drawPath(nose)
+    _mood_mouth(painter, cx, cy - 4 + bob, mood, trim, accent, 10.0)
+    if visual != SLEEPING and mood != "serious":
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(_qc((241, 111, 137), 235))
+        painter.drawEllipse(QRectF(cx - 3.5, cy - 1 + bob, 7, 7))
+    painter.setBrush(_qc(accent, 185))
+    painter.drawEllipse(QPointF(cx - 23, cy - 5 + bob), 4.2, 2.6)
+    painter.drawEllipse(QPointF(cx + 23, cy - 5 + bob), 4.2, 2.6)
+    if visual == SLEEPING:
+        _draw_sleep_marks(painter, cx + 21, cy - 36, accent, phase)
+
+
+def _draw_bunny(
+    painter: QPainter,
+    buddy: Character,
+    cx: float,
+    cy: float,
+    visual: str,
+    phase: float,
+    typing: float,
+    mood: str = "happy",
+    look_x: float = 0.0,
+    look_y: float = 0.0,
+) -> None:
+    """A round little rabbit with long ears, pink nose, and a cotton tail."""
+    hop = math.sin(phase * 1.8) * 1.0 + typing * math.sin(phase * 8.0) * 1.2
+    if visual == SLEEPING:
+        hop = math.sin(phase * 0.4) * 0.6
+    ear_wiggle = math.sin(phase * 2.0) * (3.5 if visual != SLEEPING else 1.0)
+    body, trim, accent = buddy.body, buddy.trim, buddy.accent
+
+    # Two upright ears, one cheerfully tilted.
+    for sign in (-1, 1):
+        painter.save()
+        painter.translate(cx + sign * 12, cy - 28 + hop)
+        painter.rotate(sign * (9 + ear_wiggle))
+        ear = QRectF(-9, -45, 18, 51)
+        painter.setPen(QPen(_qc(trim, 220), 1.6))
+        painter.setBrush(_qc(body, 255))
+        painter.drawRoundedRect(ear, 9, 9)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(_qc(accent, 190))
+        painter.drawRoundedRect(QRectF(-4.3, -39, 8.6, 39), 4.3, 4.3)
+        painter.restore()
+
+    # Cotton tail peeks out to the right.
+    painter.setPen(QPen(_qc(trim, 130), 1.0))
+    painter.setBrush(_qc((255, 255, 255), 250))
+    painter.drawEllipse(QPointF(cx + 35, cy + 21 + hop), 9, 9)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(_qc((255, 255, 255), 225))
+    for dx, dy in ((-3, -2), (3, -2), (0, 3)):
+        painter.drawEllipse(QPointF(cx + 35 + dx, cy + 21 + hop + dy), 3.3, 3.3)
+
+    # Round body, tucked paws, and little feet.
+    painter.setPen(QPen(_qc(trim, 220), 1.6))
+    painter.setBrush(_qc(body, 255))
+    painter.drawEllipse(QRectF(cx - 30, cy + 7 + hop, 60, 41))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(_qc(accent, 125))
+    painter.drawEllipse(QRectF(cx - 13, cy + 14 + hop, 26, 27))
+    for sign in (-1, 1):
+        painter.setPen(QPen(_qc(trim, 150), 1.0))
+        painter.setBrush(_qc(body, 255))
+        painter.drawEllipse(QRectF(cx + sign * 20 - 9, cy + 35 + hop, 18, 9))
+
+    # Large head and bright, curious eyes.
+    painter.setPen(QPen(_qc(trim, 230), 1.7))
+    painter.setBrush(_qc(body, 255))
+    painter.drawEllipse(QRectF(cx - 34, cy - 27 + hop, 68, 58))
+    blink = visual == SLEEPING or _blink(phase, 0.35)
+    for sign in (-1, 1):
+        ex = cx + sign * 13
+        painter.setPen(QPen(_qc(trim, 220), 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        if blink:
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawArc(QRectF(ex - 4.8, cy - 7 + hop, 9.6, 5), 200 * 16, 140 * 16)
+        else:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(255, 252, 247, 250))
+            painter.drawEllipse(QRectF(ex - 5.3, cy - 12 + hop, 10.6, 13))
+            painter.setBrush(QColor(48, 36, 44, 255))
+            shift = max(-1.5, min(1.5, look_x * 1.7))
+            painter.drawEllipse(QPointF(ex + shift, cy - 5 + hop + look_y), 2.5, 3.0)
+            painter.setBrush(QColor(255, 255, 255, 235))
+            painter.drawEllipse(QPointF(ex - 1 + shift, cy - 7 + hop), 0.9, 1.1)
+
+    # A tiny heart-shaped nose, smile, whiskers, and blush.
+    nose = QPainterPath()
+    nose.moveTo(cx, cy + 1 + hop)
+    nose.cubicTo(cx - 6, cy - 5 + hop, cx - 8, cy + 3 + hop, cx, cy + 8 + hop)
+    nose.cubicTo(cx + 8, cy + 3 + hop, cx + 6, cy - 5 + hop, cx, cy + 1 + hop)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(_qc(accent, 255))
+    painter.drawPath(nose)
+    painter.setPen(QPen(_qc(trim, 200), 1.3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawLine(QPointF(cx, cy + 7 + hop), QPointF(cx, cy + 10 + hop))
+    painter.drawArc(QRectF(cx - 7, cy + 6 + hop, 7, 6), 200 * 16, 140 * 16)
+    painter.drawArc(QRectF(cx, cy + 6 + hop, 7, 6), 200 * 16, 140 * 16)
+    painter.setPen(QPen(_qc(trim, 115), 0.8))
+    for sign in (-1, 1):
+        painter.drawLine(QPointF(cx + sign * 8, cy + 7 + hop), QPointF(cx + sign * 22, cy + 4 + hop))
+        painter.drawLine(QPointF(cx + sign * 8, cy + 9 + hop), QPointF(cx + sign * 21, cy + 12 + hop))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(_qc(accent, 150))
+    painter.drawEllipse(QPointF(cx - 24, cy + 2 + hop), 4.2, 2.7)
+    painter.drawEllipse(QPointF(cx + 24, cy + 2 + hop), 4.2, 2.7)
+    if visual == SLEEPING:
+        _draw_sleep_marks(painter, cx + 23, cy - 26, accent, phase)
+
+
+def _draw_owl(
+    painter: QPainter,
+    buddy: Character,
+    cx: float,
+    cy: float,
+    visual: str,
+    phase: float,
+    typing: float,
+    mood: str = "happy",
+    look_x: float = 0.0,
+    look_y: float = 0.0,
+) -> None:
+    """A little round owl with feather tufts, facial discs, and a beak."""
+    bob = math.sin(phase * 1.1) * 1.0 + typing * math.sin(phase * 6.0) * 0.8
+    if visual == SLEEPING:
+        bob = math.sin(phase * 0.35) * 0.5
+    body, trim, accent = buddy.body, buddy.trim, buddy.accent
+
+    # Folded wings stick out at the sides; the tips flap on a busy desk.
+    flap = math.sin(phase * 4.0) * min(1.0, typing + (0.35 if visual == SCATTER else 0.0)) * 5.0
+    for sign in (-1, 1):
+        wing = QPainterPath()
+        wing.moveTo(cx + sign * 22, cy - 2 + bob)
+        wing.cubicTo(cx + sign * 45, cy - 18 + bob - flap, cx + sign * 48, cy + 16 + bob + flap, cx + sign * 28, cy + 29 + bob)
+        wing.cubicTo(cx + sign * 20, cy + 19 + bob, cx + sign * 19, cy + 8 + bob, cx + sign * 22, cy - 2 + bob)
+        painter.setPen(QPen(_qc(trim, 220), 1.5))
+        painter.setBrush(_qc(body, 255))
+        painter.drawPath(wing)
+        painter.setPen(QPen(_qc(accent, 135), 1.0))
+        painter.drawLine(QPointF(cx + sign * 29, cy + 5 + bob), QPointF(cx + sign * 40, cy + 17 + bob))
+        painter.drawLine(QPointF(cx + sign * 28, cy + 12 + bob), QPointF(cx + sign * 38, cy + 22 + bob))
+
+    # Ear tufts, unmistakably owl-shaped rather than moth wings.
+    painter.setPen(QPen(_qc(trim, 225), 1.4))
+    painter.setBrush(_qc(body, 255))
+    left_tuft = QPainterPath()
+    left_tuft.moveTo(cx - 29, cy - 27 + bob)
+    left_tuft.lineTo(cx - 38, cy - 48 + bob)
+    left_tuft.quadTo(cx - 22, cy - 43 + bob, cx - 11, cy - 29 + bob)
+    left_tuft.closeSubpath()
+    right_tuft = QPainterPath()
+    right_tuft.moveTo(cx + 29, cy - 27 + bob)
+    right_tuft.lineTo(cx + 38, cy - 48 + bob)
+    right_tuft.quadTo(cx + 22, cy - 43 + bob, cx + 11, cy - 29 + bob)
+    right_tuft.closeSubpath()
+    painter.drawPath(left_tuft)
+    painter.drawPath(right_tuft)
+
+    # Round body and cream feathered bib.
+    painter.setPen(QPen(_qc(trim, 235), 1.8))
+    painter.setBrush(_qc(body, 255))
+    painter.drawEllipse(QRectF(cx - 37, cy - 34 + bob, 74, 83))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(_qc(accent, 205))
+    bib = QPainterPath()
+    bib.moveTo(cx - 24, cy + 3 + bob)
+    bib.quadTo(cx, cy - 7 + bob, cx + 24, cy + 3 + bob)
+    bib.quadTo(cx + 27, cy + 33 + bob, cx, cy + 39 + bob)
+    bib.quadTo(cx - 27, cy + 33 + bob, cx - 24, cy + 3 + bob)
+    painter.drawPath(bib)
+    painter.setPen(QPen(_qc(trim, 80), 0.8))
+    for row, y in enumerate((12, 19, 26, 32)):
+        width = 11 + row * 3
+        painter.drawArc(QRectF(cx - width, cy + y + bob, width * 2, 11), 205 * 16, 130 * 16)
+
+    # Pale face disks frame the very large golden eyes.
+    blink = visual == SLEEPING or _blink(phase, 0.28)
+    for sign in (-1, 1):
+        ex = cx + sign * 14
+        painter.setPen(QPen(_qc(trim, 100), 0.8))
+        painter.setBrush(QColor(255, 239, 205, 240))
+        painter.drawEllipse(QRectF(ex - 14, cy - 25 + bob, 28, 29))
+        if blink:
+            painter.setPen(QPen(_qc(trim, 230), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawArc(QRectF(ex - 7, cy - 12 + bob, 14, 6), 200 * 16, 140 * 16)
+        else:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(255, 255, 250, 255))
+            painter.drawEllipse(QRectF(ex - 8.5, cy - 21 + bob, 17, 20))
+            painter.setBrush(_qc((202, 139, 54), 255))
+            painter.drawEllipse(QPointF(ex + look_x * 1.4, cy - 11 + bob + look_y), 5.7, 6.5)
+            painter.setBrush(QColor(35, 29, 29, 255))
+            painter.drawEllipse(QPointF(ex + look_x * 1.6, cy - 10 + bob + look_y), 2.6, 4.1)
+            painter.setBrush(QColor(255, 255, 255, 235))
+            painter.drawEllipse(QPointF(ex - 2 + look_x, cy - 15 + bob), 1.4, 1.4)
+        # Fine round frames give Hoot a thoughtful, bookish silhouette.
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(_qc((232, 195, 127), 210), 1.0))
+        painter.drawEllipse(QRectF(ex - 9.2, cy - 22 + bob, 18.4, 21.5))
+    painter.setPen(QPen(_qc((232, 195, 127), 210), 1.0))
+    painter.drawLine(QPointF(cx - 1.8, cy - 13 + bob), QPointF(cx + 1.8, cy - 13 + bob))
+
+    # Small golden beak and feet.
+    beak = QPainterPath()
+    beak.moveTo(cx - 5, cy - 1 + bob)
+    beak.lineTo(cx + 5, cy - 1 + bob)
+    beak.lineTo(cx, cy + 7 + bob)
+    beak.closeSubpath()
+    painter.setPen(QPen(_qc(trim, 160), 0.7))
+    painter.setBrush(_qc((242, 174, 73), 255))
+    painter.drawPath(beak)
+    painter.setPen(QPen(_qc((221, 153, 68), 255), 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    for sign in (-1, 1):
+        x = cx + sign * 13
+        painter.drawLine(QPointF(x, cy + 43 + bob), QPointF(x, cy + 47 + bob))
+        painter.drawLine(QPointF(x, cy + 46 + bob), QPointF(x - sign * 4, cy + 48 + bob))
+        painter.drawLine(QPointF(x, cy + 46 + bob), QPointF(x + sign * 4, cy + 48 + bob))
+    if visual == SLEEPING:
+        _draw_sleep_marks(painter, cx + 24, cy - 36, accent, phase)
 
 
 def _draw_frog(

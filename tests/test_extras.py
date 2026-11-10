@@ -186,7 +186,7 @@ class CustomSettingsTests(unittest.TestCase):
                 self.assertEqual(loaded.chatter, "chatty")
                 self.assertEqual(loaded.activity_pin, GAMING)
                 self.assertFalse(loaded.idle_animations)
-                self.assertTrue(loaded.auto_talk)
+                self.assertFalse(loaded.auto_talk)
 
                 target.write_text(
                     json.dumps({"chatter": "loud", "activity_pin": "napping"}),

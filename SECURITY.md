@@ -1,6 +1,6 @@
 # Security notes
 
-Lumen Moth is a local desktop toy. It is designed so that nothing it watches,
+DeskCompy is a local desktop toy. It is designed so that nothing it watches,
 loads, or draws can turn into a path, a command, or a network request.
 
 ## What the app touches
@@ -12,10 +12,10 @@ loads, or draws can turn into a path, a command, or a network request.
 - **No network.** There are no HTTP clients, sockets, telemetry, or update
   checks in the code. The only file writes are `settings.json`, the optional
   user buddy folder, and (when you press the button) a template manifest.
-- **Chat is stateless.** A question typed into the talk box is cleaned,
-  lowercased, matched against a fixed keyword list, answered from static
-  tables, and dropped. It is never stored, logged, or echoed into the bubble.
-  There is no model and no API call.
+- **Chat stays local.** Questions are cleaned and matched against fixed keyword
+  rules; answers come from static tables. The open chat panel holds a short
+  transcript in memory and clears it when closed. Nothing is logged, saved,
+  or sent anywhere. There is no model and no API call.
 
 ## Untrusted text
 
@@ -34,7 +34,7 @@ tooltip built from buddy data is passed through `html.escape` first.
 
 ## Untrusted files
 
-Custom buddies live in `%APPDATA%\LumenMoth\buddies` (or `assets\custom` beside
+Custom buddies live in `%APPDATA%\DeskCompy\buddies` (or `assets\custom` beside
 the app). Loading them is deliberately narrow:
 
 - the **folder name is the id** and must match `[a-z][a-z0-9_-]{1,23}`;

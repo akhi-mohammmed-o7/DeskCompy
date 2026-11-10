@@ -9,13 +9,11 @@ sit beside each other, so adding frames later never means deleting the still.
 from the original single-companion layout, then a root portrait named after
 the character, then ``companion.*``. The drawn buddy is the fallback for
 everything. External folders are searched before the bundled copy, and the
-cache drops every two seconds so a swapped file takes effect while the app is
-open.
+cache refreshes when the user reloads custom buddies or switches characters.
 """
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -61,7 +59,6 @@ class SpriteLibrary:
         )
         self.character = character
         self._cache: dict[str, Sprite | None] = {}
-        self._checked_at = 0.0
         self._state = ""
         self._state_since = 0.0
 
@@ -74,9 +71,7 @@ class SpriteLibrary:
         self._state_since = 0.0
 
     def refresh_if_due(self, force: bool = False) -> None:
-        now = time.monotonic()
-        if force or now - self._checked_at >= 2.0:
-            self._checked_at = now
+        if force:
             self._cache.clear()
 
     def get(self, state: str) -> Sprite | None:

@@ -4,7 +4,7 @@ A custom buddy is a folder whose *folder name* is the safe id, containing a
 ``buddy.json``. Nothing in the manifest is trusted: it is size-capped, parsed
 with the stdlib JSON reader (never evaluated), every string is cleaned and
 length-capped, colours must be plain hex, the body shape must be one of the
-five drawn bodies, and dialogue is only accepted for known situations.
+eight drawn bodies, and dialogue is only accepted for known situations.
 
 Images, if present, are loaded by :mod:`sprites`, which rejects oversized
 files and huge dimensions before decoding. A manifest can never name a path:
@@ -67,7 +67,8 @@ buddy.json fields:
   name      required, up to 16 characters
   species   up to 24 characters
   tagline   up to 70 characters
-  shape     one of: moth, cat, frog, ghost, axolotl (used until art exists)
+  shape     one of: moth, cat, frog, ghost, axolotl, dog, bunny, owl
+            (used until art exists)
   body      optional #rrggbb colour for the drawn body
   trim      optional #rrggbb colour for outlines
   accent    optional #rrggbb colour for cheeks and details

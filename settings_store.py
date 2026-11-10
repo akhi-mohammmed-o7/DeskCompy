@@ -37,13 +37,15 @@ class Settings:
     chatter: str = "balanced"
     idle_animations: bool = True
     mirror_particles: bool = True
-    auto_talk: bool = True
+    auto_talk: bool = False
     # "auto" lets the rhythm decide; anything else is a deliberate pin.
     activity_pin: str = "auto"
 
     def save(self) -> None:
         path = settings_file()
-        payload = json.dumps(asdict(self), indent=2)
+        data = asdict(self)
+        data["schema_version"] = 2
+        payload = json.dumps(data, indent=2)
         temporary = path.with_suffix(".json.tmp")
         try:
             temporary.write_text(payload, encoding="utf-8")
@@ -116,9 +118,15 @@ def load_settings() -> Settings:
     chatter = raw.get("chatter")
     if isinstance(chatter, str) and chatter in ("quiet", "balanced", "chatty"):
         settings.chatter = chatter
-    for field_name in ("idle_animations", "mirror_particles", "auto_talk"):
+    for field_name in ("idle_animations", "mirror_particles"):
         if isinstance(raw.get(field_name), bool):
             setattr(settings, field_name, raw[field_name])
+    # Ambient lines were enabled by default in early builds. Turn that legacy
+    # default off once; an explicit opt-in in newer settings is respected.
+    schema_version = raw.get("schema_version", 1)
+    if isinstance(schema_version, int) and not isinstance(schema_version, bool) and schema_version >= 2:
+        if isinstance(raw.get("auto_talk"), bool):
+            settings.auto_talk = raw["auto_talk"]
     pin = raw.get("activity_pin")
     if pin in ("auto", STUDY, GAMING, WORK, CHILL):
         settings.activity_pin = pin

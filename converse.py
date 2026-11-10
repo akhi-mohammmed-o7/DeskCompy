@@ -1,10 +1,10 @@
 """A tiny, deterministic chat toy — not a language model.
 
 The talk box is meant for a bit of fun: the buddy matches a handful of ordinary
-phrases and answers in character. There is deliberately no model, no network
-call, and no memory. The typed question is cleaned, lowercased, matched against
-static keyword rules, and dropped. It is never stored, logged, sent anywhere,
-or echoed back into the bubble.
+phrases and answers in character. There is deliberately no model or network
+call. Questions are cleaned and matched against static keyword rules. The
+short conversation lives only in the open chat panel and clears when it closes;
+it is never logged or saved.
 
 Replies come from fixed tables, so nothing a person types can change the
 markup, path, command, or file the app touches. The same goes for the bubble:
@@ -144,14 +144,39 @@ VOICES: dict[str, dict[str, tuple[str, ...]]] = {
     },
 }
 
-# Extra buddies borrow a body's voice, with a name of their own.
-for _key, _shape, _identity in (
-    ("dog", "cat", ("Rex. Desk dog. I sit, I stay, I steal socks.", "I'm the dog. I'm a very good boy, probably.")),
-    ("bunny", "frog", ("Pipkin! Pocket bunny. Ears up, snacks first.", "I'm the bunny. I hop and I snack.")),
-    ("owl", "moth", ("Hoot. Study owl. I see everything. I nap through most of it.", "I'm the owl. Wise, sleepy, snack-curious.")),
-):
-    VOICES[_key] = {intent: VOICES[_shape][intent] for intent in VOICES[_shape]}
-    VOICES[_key]["identity"] = _identity
+VOICES["dog"] = {
+    **VOICES["cat"],
+    "identity": ("Rex. Loyal desk dog, professional sock inspector.", "Desk dog here. My tail is wagging at your excellent timing."),
+    "support": ("Come sit by me. We can untangle one little thing at a time.", "Ruff day? I prescribe a breath, a stretch, and absolutely no guilt."),
+    "study": ("I'll guard your notes. If a squirrel appears, I may need a moment.", "One page at a time. I can stay. I am very good at staying."),
+    "work": ("Let's fetch the easiest task first. Momentum is a treat.", "I believe in you. My tail says so, and it has excellent judgment."),
+    "game": ("Player two reporting! I bring enthusiasm and no button knowledge.", "Go! I am cheering at the pixels. They seem nice."),
+    "food": ("Snack? I have already heard the wrapper from three rooms away.", "I cannot share your snack, but I can supervise it closely."),
+    "joke": ("Why did the dog sit by the computer? It wanted to keep an eye on the mouse.", "I tried to fetch the cursor. It moved. I respect the challenge."),
+    "help": ("I offer encouragement, enthusiastic tail wagging, and sock security.", "Tell me about work, study, games, snacks, or your very good choices."),
+}
+VOICES["bunny"] = {
+    **VOICES["frog"],
+    "identity": ("Pipkin. Pocket bunny, carrot enthusiast, tiny hop expert.", "I'm a bunny! My ears are tall and my snack standards are higher."),
+    "support": ("Big feeling? We can make it smaller, one gentle hop at a time.", "You can rest here. I brought imaginary clover and no deadlines."),
+    "study": ("One page, then a stretch. I will keep your place with my paw.", "Let's nibble through that chapter. Metaphorically. Mostly."),
+    "work": ("Pick one small task. We can make a whole carrot out of it.", "You do the work; I will provide a very serious nose wiggle."),
+    "game": ("Hop-hop-hooray! I am your tiny victory coach.", "That was fast! I blinked and your score did a backflip."),
+    "food": ("Carrots for me, snacks for you. A perfectly fair arrangement.", "Snack break! My ears detected the word from across the room."),
+    "joke": ("Why did the bunny bring a pencil? To draw its own hare-raising plans.", "I tried to tell a joke, but I got a little hare-brained."),
+    "help": ("I can hop beside you, cheer you on, and guard your clover.", "Ask about study, work, games, or snacks. My ears are listening."),
+}
+VOICES["owl"] = {
+    **VOICES["moth"],
+    "identity": ("Hoot. I am Hoot, a study owl with excellent eyebrows.", "A small owl. I know a little about a lot and nap about the rest."),
+    "support": ("Even wise owls pause between branches. You may pause too.", "That sounds heavy. Let's sit with it before we try to solve it."),
+    "study": ("Read one paragraph. Blink thoughtfully. Continue being brilliant.", "I shall watch the page. It has nowhere to hide."),
+    "work": ("Wise plan: choose the smallest task and give it your full beak.", "A long list is just several short lists wearing a trench coat."),
+    "game": ("I have studied the rules. I still prefer the shiny button.", "A bold move. I shall record it in my imaginary owl journal."),
+    "food": ("I enjoy a midnight snack. Preferably not while I am asleep.", "You eat; I shall make a very scholarly note about it."),
+    "joke": ("What do you call an owl magician? Hoo-dini. I regret nothing.", "I tried to tell a joke at night. The audience was mostly crickets."),
+    "help": ("I offer calm company, study nudges, and one excellent hoot.", "Ask about studying, work, games, or snacks. I have considered all four."),
+}
 
 FALLBACK = (
     "I'm more of a vibes buddy than a search engine. Ask about studying, games, snacks, or jokes.",

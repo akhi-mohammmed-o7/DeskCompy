@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import sys
 
-from PyQt6.QtCore import QSharedMemory, Qt
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
 from paths import APP_NAME, VERSION
@@ -33,25 +33,6 @@ def _configure_logging() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-
-
-def _single_instance(app: QApplication) -> bool:
-    """Return False when another Lumen Moth is already perched.
-
-    A crashed run can leave a stale segment. Attach and drop it, then try once more.
-    """
-    memory = QSharedMemory("DeskCompy.single.v1", app)
-    if memory.create(1):
-        app._lumen_instance = memory  # keep the segment alive for this process
-        return True
-    if memory.error() == QSharedMemory.SharedMemoryError.AlreadyExists:
-        return False
-    if memory.attach():
-        memory.detach()
-    if memory.create(1):
-        app._lumen_instance = memory
-        return True
-    return False
 
 
 def main() -> int:

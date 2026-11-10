@@ -1,4 +1,4 @@
-"""The buddy roster: five small characters with their own shapes and voices.
+"""The buddy roster: eight small characters with their own shapes and voices.
 
 Everything here is plain data so settings can validate a saved choice without
 importing Qt. The drawing lives in :mod:`painter`, and the spoken lines live in
@@ -86,7 +86,7 @@ CHARACTERS: dict[str, Character] = {
         body=(214, 178, 138),
         trim=(92, 64, 44),
         accent=(255, 196, 120),
-        shape="cat",
+        shape="dog",
     ),
     "bunny": Character(
         key="bunny",
@@ -96,7 +96,7 @@ CHARACTERS: dict[str, Character] = {
         body=(246, 232, 244),
         trim=(120, 92, 132),
         accent=(255, 180, 210),
-        shape="frog",
+        shape="bunny",
     ),
     "owl": Character(
         key="owl",
@@ -106,7 +106,7 @@ CHARACTERS: dict[str, Character] = {
         body=(176, 148, 112),
         trim=(72, 52, 36),
         accent=(255, 210, 140),
-        shape="moth",
+        shape="owl",
     ),
 }
 

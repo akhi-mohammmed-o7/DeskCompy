@@ -486,15 +486,58 @@ LINES: dict[str, dict[str, tuple[str, ...]]] = {
     },
 }
 
-# Extra buddies borrow a body's voice, with a name of their own.
-for _key, _shape, _meet in (
-    ("dog", "cat", "Rex. Desk dog. I brought the tail wags."),
-    ("bunny", "frog", "Pipkin! Bunny. Ears up, ready to hop."),
-    ("owl", "moth", "Hoot. Study owl. I'm watching, and napping, and watching."),
-):
-    _lines = {situation: LINES[_shape][situation] for situation in SITUATIONS}
-    _lines["meet"] = (_meet,)
-    LINES[_key] = _lines
+# Each added buddy gets its own voice for the moments that define its character.
+LINES["dog"] = {
+    **LINES["cat"],
+    "meet": ("Rex reporting for duty. I brought my tail and zero plans.", "Desk dog online. Is that a snack or a very small hat?"),
+    "study": ("I can hold the book open. I may also sit on it.", "You read. I'll guard the page from suspicious squirrels."),
+    "game": ("Player two is ready! My controller is mostly enthusiasm.", "Go go go! I am barking at the pixels respectfully."),
+    "work": ("Big task? I can fetch you a smaller one to start.", "I believe in you. Also, I found a sock. Important update."),
+    "chill": ("We are on the same wavelength: horizontal-adjacent.", "I am doing a very professional tail wag at nothing."),
+    "away": ("Nap patrol. I will guard the desk with my whole face.", "Quiet time! Dreaming of tennis balls and tiny deadlines."),
+    "back": ("You're back! I saved you the best spot. It's this spot.", "Welcome home. I did not eat the mouse. Probably."),
+    "poke": ("Boop! Tail wag activated. Cannot be deactivated.", "That was my snoot. Five stars. Excellent boop."),
+    "type": ("Keyboard sounds! I shall supervise with one ear.", "Clack-clack. That task is getting a very good sniff."),
+    "click": ("I heard a click. Was that the treat button?", "Cursor spotted! My tail is doing its own thing."),
+    "focus_start": ("I will guard your focus. No squirrels past this point.", "Twenty-five minutes. I can stay. I am an excellent stay-er."),
+    "focus_done": ("You did it! I am wagging at a frankly unsafe speed.", "Timer finished. You get a stretch; I get one imaginary treat."),
+    "game_hype": ("YES! Fetch that win! I will bark at the scoreboard.", "That move was so good my tail hit the imaginary lamp."),
+    "smalltalk": ("I have a very important question: walk now or walk later?", "I saw a dust bunny. I made a friend. It was a bunny."),
+}
+LINES["bunny"] = {
+    **LINES["frog"],
+    "meet": ("Pipkin here! Ears up, paws ready, snack radar on.", "Hello! I am small, swift, and already thinking about carrots."),
+    "study": ("One page, one tiny hop, one more page. We can do this.", "I'll keep your place with my paw. No nibbling the notes. Maybe."),
+    "game": ("Hop-hop-hooray! I am your tiny victory coach.", "That was fast! My ears are still catching up."),
+    "work": ("Let's nibble this task into very manageable pieces.", "A little progress, then a little stretch. Bunny math."),
+    "chill": ("I found a quiet corner. It has excellent imaginary clover.", "We can sit still. My nose will do all the moving."),
+    "away": ("Tucked in. Ears off duty. See you after the nap.", "Quiet desk, soft dreams, absolutely no carrots to share."),
+    "back": ("You're back! I saved a clover-shaped thought for you.", "Welcome back! My ears noticed before I did."),
+    "poke": ("Boop! Nose wiggle! That is the whole alarm system.", "One boop received. I shall hop about it later."),
+    "type": ("Tap tap tap. Is that a tiny rainstorm?", "Your keys go faster than my little feet. Impressive."),
+    "click": ("Click! My ears did a synchronized twitch.", "I heard that. My nose heard it too. It hears everything."),
+    "focus_start": ("I'll keep my ears up while you focus. Quiet paws.", "Focus burrow secured. I will guard the carrot-shaped timer."),
+    "focus_done": ("Time to stretch your legs. I will demonstrate a hop.", "You did it! I am doing a tiny celebratory binky."),
+    "game_hype": ("Hop! Hop! Victory! I have no idea what the buttons do!", "My ears are flapping from the excitement. Keep going!"),
+    "smalltalk": ("I was counting my whiskers. Lost count at whisker three.", "If I had a tiny teacup, this would be a very cozy desk."),
+}
+LINES["owl"] = {
+    **LINES["moth"],
+    "meet": ("Hoot. Hoot. Hoot. That is three hoots. We are acquainted.", "Hoot here. Wise, watchful, and absolutely not nodding off."),
+    "study": ("A wise plan: one paragraph, then blink with purpose.", "I shall watch the page. It has nowhere to hide."),
+    "game": ("I have studied the rules. I still prefer the shiny button.", "A bold move. I shall record it in my imaginary owl journal."),
+    "work": ("Let us divide this task into sensible little branches.", "I have wise advice: start with the smallest annoying bit."),
+    "chill": ("The room is calm. My eyelids have filed a motion.", "I am practicing stillness. It looks a lot like a nap."),
+    "away": ("Night watch begins. I will remain awake-ish.", "The desk is safe. I have inspected it from a seated position."),
+    "back": ("Welcome back. I kept your place in the universe.", "Hoot! I was alert the whole time. Ask no follow-up questions."),
+    "poke": ("A gentle tap. I shall add it to the owl archives.", "Hoot! That startled exactly one feather."),
+    "type": ("Steady tapping. A promising rhythm for a good idea.", "I can hear the shape of a sentence. It sounds nearly finished."),
+    "click": ("One click. A decision has been made.", "Noted. I shall look wise about it."),
+    "focus_start": ("I will keep watch. My eyes are built for this. Mostly.", "Focus vigil accepted. No snacks, no naps, one eye open."),
+    "focus_done": ("Well done. Even the moon is impressed.", "Timer complete. Stretch your wings. You have earned it."),
+    "game_hype": ("Excellent reflexes. I saw that in the corner of both eyes.", "Victory is a branch. You are perched on it."),
+    "smalltalk": ("Fun fact: owls can turn their heads. I will not demonstrate.", "I have been thinking. It is a very quiet hobby."),
+}
 
 # Used only if a future character forgets a situation. Keeps the buddy talking.
 COMMON: dict[str, tuple[str, ...]] = {

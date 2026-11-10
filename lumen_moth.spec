@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""Onedir build. UPX is off: it often makes Qt executables trip antivirus tools.
+"""DeskCompy onedir build. UPX stays off for a simpler Qt package.
 
     pyinstaller --noconfirm lumen_moth.spec
 
-Ship the ``dist/LumenMoth`` folder. An ``assets`` folder created next to
-``LumenMoth.exe`` overrides the images packed into the build.
+Ship the ``dist/DeskCompy`` folder. An ``assets`` folder created next to
+``DeskCompy.exe`` overrides the images packed into the build.
 """
 
 block_cipher = None
