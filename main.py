@@ -65,10 +65,6 @@ def main() -> int:
     app.setOrganizationName("DeskCompy")
     app.setQuitOnLastWindowClosed(True)
 
-    if not _single_instance(app):
-        print("DeskCompy is already perched.", file=sys.stderr)
-        return 0
-
     window = CompanionWindow()
     app.aboutToQuit.connect(window.shutdown)
     window.show()
