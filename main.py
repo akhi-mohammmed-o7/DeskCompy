@@ -10,7 +10,7 @@ No console window:
 
 Package later (after ``pip install pyinstaller``):
 
-    pyinstaller --noconfirm lumen_moth.spec
+    pyinstaller --noconfirm deskcompy.spec
 
 The executable looks for an ``assets`` folder beside it first, so images can
 be swapped without rebuilding.

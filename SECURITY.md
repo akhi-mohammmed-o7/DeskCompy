@@ -7,11 +7,21 @@ loads, or draws can turn into a path, a command, or a network request.
 
 - **Input is counts only.** The global hooks record *when* a key or mouse
   button goes down. The character is never read, held-key repeat is ignored,
-  and nothing about your typing is written to disk. Cadence is folded into an
-  activity guess a few times a second.
+  and nothing about your typing is written to disk. Half a minute of
+  per-second key and click counts is held in memory so the rhythm's steadiness
+  can be judged, and cadence is folded into an activity guess a few times a
+  second. Those counts die with the process.
 - **No network.** There are no HTTP clients, sockets, telemetry, or update
   checks in the code. The only file writes are `settings.json`, the optional
-  user buddy folder, and (when you press the button) a template manifest.
+  user buddy folder, (when you press the button) a template manifest, and the
+  generated `lumen-chime.wav` / `lumen-cue-*.wav` files next to the settings.
+  Those WAVs are synthesised at runtime from fixed tone recipes; no audio is
+  ever recorded or read.
+- **One optional registry value.** "Start with Windows" in Customize writes a
+  single per-user value under `HKCU\Software\Microsoft\Windows\CurrentVersion\
+  Run`. It points at this copy of the app (or at `pythonw` plus `main.py` when
+  running from source) and the same switch deletes it. Nothing is installed
+  system-wide, and no administrator rights are requested.
 - **Chat stays local.** Questions are cleaned and matched against fixed keyword
   rules; answers come from static tables. The open chat panel holds a short
   transcript in memory and clears it when closed. Nothing is logged, saved,
@@ -55,7 +65,8 @@ from starting or take over an existing buddy.
 
 ## Local privilege
 
-The app runs with the same rights as the user, adds no autostart entry, and
-installs nothing. Ghost perch (click-through) is refused when no tray icon
+The app runs with the same rights as the user and installs nothing. It adds no
+startup entry unless you turn one on in Customize; that entry is per-user and
+removable from the same dialog. Ghost perch (click-through) is refused when no tray icon
 exists, because that would otherwise be a way to lock the window away with no
 way back.

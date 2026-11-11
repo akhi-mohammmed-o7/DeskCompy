@@ -1,34 +1,40 @@
-Drop images here to dress a buddy. PNG, WEBP, or JPG.
-Use a transparent background: the window is clear around the picture.
+Dress a buddy, or bring your own.
 
-The five vector buddies are used wherever a file is missing. A file replaces
+Images here replace the drawn body of a built-in buddy. PNG, WEBP, and JPG all
+work. Use a transparent background: the window is clear around the picture.
+
+The eight vector bodies are used wherever a file is missing. A file replaces
 the body only. The glow, focus ring, dew drop, speech bubble, mirror particles,
-caption, and glimmer bars stay. Their idle fidgets (Lumen's dart, Mochi's yarn,
-Pip's hop, Wisp's drift, Nori's bubbles) are drawn in vectors and still play
-around an image.
+caption, and glimmer bars stay. Idle fidgets, tricks, and accessories are drawn
+in vectors and still play around an image.
 
 One folder per buddy (recommended)
+----------------------------------
 
   assets/moth/       Lumen, the lantern moth
   assets/cat/        Mochi, the loaf cat
   assets/frog/       Pip, the pocket frog
   assets/ghost/      Wisp, the desk ghost
   assets/axolotl/    Nori, the pocket axolotl
+  assets/dog/        Rex, the desk dog
+  assets/bunny/      Pipkin, the bunny
+  assets/owl/        Hoot, the owl
 
-Inside a buddy folder, use these names:
+Inside a buddy folder:
 
   companion.png    used for every state that has no file of its own
   calm.png         hanging out
   working.png      studying or working
   scatter.png      gaming
   sleeping.png     five quiet minutes
-  focus.png        while the 25 minute vigil is running
+  focus.png        while the focus timer is running
 
 The old flat layout still works: calm.png, working.png, scatter.png,
 sleeping.png, focus.png, and companion.png at the root of assets. A root file
 named after a buddy (cat.png, frog.png, ...) is used as that buddy's portrait.
 
 Animated states
+---------------
 
 Add numbered frames instead of (or beside) a single picture:
 
@@ -42,14 +48,15 @@ is fitted into the window. Up to 24 frames are read per state, and a sequence
 stops early at a 24-megapixel total.
 
 Files are re-read while the app is open, so you can swap them without
-restarting. After packaging, a folder named assets next to LumenMoth.exe
-overrides the images that were bundled in.
+restarting. After packaging, a folder named assets next to DeskCompy.exe
+overrides the images bundled in.
 
 Your own buddies
+----------------
 
-Choose "Add your own buddy..." from the companion menu. That opens
-%APPDATA%\LumenMoth\buddies, which is writable even after packaging. Make a
-folder with a lowercase slug name (bean, my-cat) and put a buddy.json inside:
+Open %APPDATA%\DeskCompy\buddies (create it if needed), then restart the
+app. Make a folder with a lowercase slug name (bean, my-cat) and put a
+buddy.json inside:
 
   {
     "name": "Bean",
@@ -62,11 +69,11 @@ folder with a lowercase slug name (bean, my-cat) and put a buddy.json inside:
     "lines": {"poke": ["Bean has been booped."]}
   }
 
-name is required. shape is moth, cat, frog, ghost, or axolotl; it is the body
-used until you add art in the same folder (calm.png, working.png, ...). Lines
-are optional and can cover: meet, study, game, work, chill, away, back, poke,
-late, long, focus_start, focus_done, water, click, type, work_tired, fun,
-study_grind, game_hype, smalltalk. Then choose "Reload custom buddies".
+name is required. shape is one of moth, cat, frog, ghost, axolotl, dog, bunny,
+owl; it is the body used until you add art in the same folder (calm.png,
+working.png, ...). Lines are optional and can cover: meet, study, game, work,
+chill, away, back, poke, late, long, focus_start, focus_done, water, click,
+type, work_tired, fun, study_grind, game_hype, smalltalk, trick.
 
 Custom files are local. Nothing is downloaded, and no file in this folder is
 ever executed. Manifests are capped at 32 KB; strings are capped and stripped
@@ -74,6 +81,7 @@ of invisible control characters; colours must be #rrggbb; images are rejected
 over 4 MB, larger than 1024 x 1024, or linked from outside the buddy folder.
 
 What the buddy notices
+----------------------
 
 Only rhythm: how fast keys and clicks arrive, and how long the desk has been
 quiet. It never reads which keys you press, window titles, or screen contents.

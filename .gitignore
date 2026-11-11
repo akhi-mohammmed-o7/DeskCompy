@@ -1,8 +1,30 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Builds
 build/
 dist/
 *.spec.bak
+
+# Local runtime state (also lives under %APPDATA%\DeskCompy)
+settings.json
+*.wav
+assets/custom/
+buddies/
+
+# Scratch art and contact sheets used while developing
+_preview_*.png
+*.log
+
+# Editors and tools
+.vscode/
+.idea/
+.freebuff/
 .pytest_cache/
 .DS_Store
 Thumbs.db
