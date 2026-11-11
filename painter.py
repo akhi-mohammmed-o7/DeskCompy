@@ -26,8 +26,9 @@ from PyQt6.QtGui import (
 from activity import AWAY, CHILL, GAMING, STUDY, WORK
 from characters import Character, get as get_character
 from reactions import Mirror
+from rewards import BY_KEY as ACCESSORY_BY_KEY
 from states import CALM, FOCUS, SCATTER, SLEEPING, WORKING
-from theme import PALETTES
+from theme import PALETTES, NATURAL, recolour, tinted_palette
 
 CANVAS_W = 196
 CANVAS_H = 232
@@ -117,9 +118,18 @@ def paint_scene(
     history: list[tuple[str, float, bool]] | None = None,
     display_name: str | None = None,
     animate: bool = True,
+    spin: float = 0.0,
+    sparkle: float = 0.0,
+    gesture: str = "",
+    gesture_t: float = 0.0,
+    coat: str = NATURAL,
+    accessory: str = "",
 ) -> None:
     buddy = get_character(character if isinstance(character, str) else character.key)
     colors = PALETTES.get(palette, PALETTES["amber"])
+    if coat != NATURAL:
+        buddy = recolour(buddy, coat)
+        colors = tinted_palette(colors, coat)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
 
@@ -142,15 +152,38 @@ def paint_scene(
     _draw_shadow(painter, cx, cy + 46, visual)
     _draw_halo(painter, cx, cy + 4, colors, visual, glow, celebrate)
     shift_x, shift_y, opacity = _idle_motion(buddy.body_shape, phase, visual, animate)
+    gesture_tilt, gesture_dip = _gesture_body(gesture, gesture_t)
+    shift_y += gesture_dip
     painter.save()
     painter.translate(shift_x, shift_y)
+    if spin:
+        # A somersault or a shimmy turns the body, never the plate beneath it.
+        painter.translate(cx, cy)
+        painter.rotate(spin)
+        painter.translate(-cx, -cy)
+    if gesture_tilt:
+        painter.translate(cx, cy + 20)
+        painter.rotate(gesture_tilt)
+        painter.translate(-cx, -(cy + 20))
+    if gesture == "flicker":
+        # A ghost mid-haunt fades in and out of the room.
+        opacity *= 0.55 + 0.45 * abs(math.sin(gesture_t * math.tau * 2.5))
     if opacity < 1.0:
         painter.setOpacity(opacity)
+    show_prop = visual != FOCUS and activity in (STUDY, WORK, GAMING)
+    # Neckwear would otherwise draw straight across the book or laptop.
+    neckwear = accessory in ("scarf", "bow_tie", "medal")
     if sprite is not None and not sprite.isNull():
         _draw_sprite(painter, cx, cy, sprite)
     else:
+        if accessory and _accessory_style(accessory) == "back":
+            _draw_accessory(painter, buddy, colors, cx, cy, accessory, phase)
         if buddy.body_shape == "moth":
             _draw_flight_trail(painter, buddy, colors, cx, cy, phase, animate, visual)
+        # A flutter really does beat the wings faster, not just wobble the perch.
+        body_phase = phase
+        if gesture == "flutter" and buddy.body_shape in ("moth", "owl"):
+            body_phase = phase * 2.8
         _draw_character(
             painter,
             buddy,
@@ -158,16 +191,39 @@ def paint_scene(
             cx,
             cy + 2,
             visual,
-            phase,
+            body_phase,
             glow,
             mirror_typing,
             _mood(visual, activity, phase, mirror_typing),
             look_x=look_x,
             look_y=look_y,
         )
-        _draw_prop(painter, activity, buddy, colors, cx, cy + 32, phase)
+        if neckwear and show_prop:
+            # Lift the collar to the neck and tuck its lower half behind the prop.
+            _draw_accessory(
+                painter,
+                buddy,
+                colors,
+                cx,
+                cy,
+                accessory,
+                phase,
+                lift=18.0 if accessory == "medal" else 14.0,
+            )
+        if show_prop:
+            _draw_prop(painter, activity, buddy, colors, cx, cy + 32, phase)
         _draw_idle_extras(painter, buddy, colors, cx, cy, phase, animate, visual)
+        if gesture:
+            _draw_gesture(painter, buddy, colors, cx, cy, gesture, gesture_t, phase)
+        if accessory and _accessory_style(accessory) != "back":
+            if not (neckwear and show_prop):
+                _draw_accessory(painter, buddy, colors, cx, cy, accessory, phase)
+        if visual == FOCUS:
+            # Locked in: a held pocket watch instead of the usual desk prop.
+            _draw_focus_watch(painter, buddy, colors, cx, cy, focus_progress, phase)
     painter.restore()
+    if sparkle > 0.02:
+        _draw_trick_sparkles(painter, cx, cy, colors, sparkle, phase)
     if visual == FOCUS or focus_progress > 0:
         _draw_ring(painter, cx, cy, colors, focus_progress, celebrate)
     elif celebrate > 0:
@@ -196,6 +252,578 @@ def paint_scene(
 # --------------------------------------------------------------------------
 # Idle business
 # --------------------------------------------------------------------------
+
+
+# One short "something happens" window per slow cycle. The phase already moves
+# at a different speed per mood, so this reads as an occasional fidget rather
+# than a metronome.
+def _gesture_rise(progress: float) -> float:
+    return math.sin(math.pi * min(1.0, max(0.0, progress)))
+
+
+def _gesture_body(gesture: str, progress: float) -> tuple[float, float]:
+    """Small whole-body travel that makes a gesture read as an action.
+
+    Returns ``(tilt_degrees, dip_pixels)``. The character-specific overlay is
+    drawn by :func:`_draw_gesture`; this part just leans the body into it.
+    """
+    if not gesture:
+        return 0.0, 0.0
+    rise = _gesture_rise(progress)
+    beat = progress * math.tau
+    if gesture == "flutter":
+        # Hovering: a little lift plus a fast wing beat.
+        return 0.0, -6.0 * rise - 1.6 * rise * math.sin(beat * 8.0)
+    if gesture == "groom":
+        # Head down to the paw, in three unhurried licks.
+        return 5.5 * math.sin(beat * 3.0) * rise, 1.8 * rise
+    if gesture == "splash":
+        return 0.0, -2.0 * abs(math.sin(beat * 2.0)) * rise
+    if gesture == "croak":
+        return 0.0, 1.2 * abs(math.sin(beat * 3.0)) * rise
+    if gesture == "binky":
+        # A bunny's happy twist-hop: up, flick, down again.
+        return 8.0 * math.sin(beat) * rise, -9.0 * abs(math.sin(beat * 2.0)) * rise
+    return 0.0, 0.0
+
+
+# --------------------------------------------------------------------------
+# Accessories (earned in the wardrobe)
+# --------------------------------------------------------------------------
+
+# Where a hat sits, as (dy from the body centre, scale).
+_HEAD_ANCHOR: dict[str, tuple[float, float]] = {
+    "moth": (-30.0, 0.70),
+    "cat": (-40.0, 0.95),
+    "dog": (-38.0, 0.95),
+    "bunny": (-26.0, 0.84),
+    "owl": (-36.0, 1.0),
+    "frog": (-36.0, 0.76),
+    "ghost": (-38.0, 0.78),
+    "axolotl": (-34.0, 0.78),
+}
+
+# Eye line, as (dy from centre, half the distance between the eyes).
+_EYE_LINE: dict[str, tuple[float, float]] = {
+    "moth": (-14.5, 5.5),
+    "cat": (-24.0, 12.0),
+    "dog": (-17.0, 14.0),
+    "bunny": (-4.0, 13.0),
+    "owl": (-11.0, 14.0),
+    "frog": (-28.0, 16.0),
+    "ghost": (-22.0, 11.0),
+    "axolotl": (-23.0, 12.0),
+}
+
+_GOLD = (244, 198, 96)
+_CREAM = (252, 246, 232)
+_RED = (216, 92, 92)
+_INK = (38, 30, 44)
+
+
+def _accessory_style(key: str) -> str:
+    item = ACCESSORY_BY_KEY.get(key)
+    return item.style if item is not None else ""
+
+
+def _draw_accessory(
+    painter: QPainter,
+    buddy: Character,
+    colors: dict[str, tuple[int, int, int]],
+    cx: float,
+    cy: float,
+    key: str,
+    phase: float,
+    lift: float = 0.0,
+) -> None:
+    """Hats, glasses, neckwear and capes, anchored to the body shape."""
+    item = ACCESSORY_BY_KEY.get(key)
+    if item is None or item.key == "none":
+        return
+    shape = buddy.body_shape
+    head_dy, head_scale = _HEAD_ANCHOR.get(shape, (-30.0, 0.9))
+    eye_dy, eye_gap = _EYE_LINE.get(shape, (-18.0, 12.0))
+    accent = buddy.accent
+    glow = colors["edge"]
+
+    if item.key == "streak_cape":
+        painter.setPen(QPen(_qc(_GOLD, 150), 1.0))
+        painter.setBrush(_qc((46, 52, 104), 240))
+        cape = QPainterPath()
+        cape.moveTo(cx - 27, cy - 8)
+        cape.lineTo(cx + 27, cy - 8)
+        cape.lineTo(cx + 44, cy + 40)
+        for step in range(4):
+            x = cx + 44 - step * 22
+            cape.quadTo(x - 5.5, cy + 45, x - 11, cy + 40)
+        cape.closeSubpath()
+        painter.drawPath(cape)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for x, y, size in ((-14, 10, 1.3), (6, 18, 1.0), (22, 6, 1.2), (-2, 32, 0.9), (18, 31, 1.1)):
+            painter.setBrush(_qc(_CREAM, 210))
+            painter.drawEllipse(QPointF(cx + x, cy + y), size, size)
+            painter.drawEllipse(QPointF(cx + x, cy + y), size * 0.4, size * 2.0)
+        painter.setPen(QPen(_qc(_GOLD, 140), 0.9))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawArc(QRectF(cx - 26, cy - 10, 52, 12), 200 * 16, 140 * 16)
+        return
+
+    if item.key == "cape":
+        painter.setPen(QPen(_qc(buddy.trim, 170), 1.1))
+        painter.setBrush(_qc(_mix(buddy.accent, _RED, 0.55), 235))
+        cape = QPainterPath()
+        cape.moveTo(cx - 27, cy - 8)
+        cape.lineTo(cx + 27, cy - 8)
+        cape.lineTo(cx + 44, cy + 40)
+        for step in range(4):
+            x = cx + 44 - step * 22
+            cape.quadTo(x - 5.5, cy + 45, x - 11, cy + 40)
+        cape.closeSubpath()
+        painter.drawPath(cape)
+        painter.setPen(QPen(_qc(_CREAM, 150), 0.9))
+        painter.drawArc(QRectF(cx - 26, cy - 10, 52, 12), 200 * 16, 140 * 16)
+        return
+
+    if item.key == "halo":
+        pulse = 0.6 + 0.4 * math.sin(phase * 2.4)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(_qc(_GOLD, int(40 + 30 * pulse)))
+        painter.drawEllipse(QRectF(cx - 26, cy - 62, 52, 16))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(_qc(_GOLD, int(190 + 50 * pulse)), 3.0))
+        painter.drawEllipse(QRectF(cx - 20, cy - 60, 40, 10))
+        return
+
+    if item.style == "face":
+        y = cy + eye_dy
+        # Small faces (the moth) need small lenses; broad faces take wide ones.
+        lens = max(5.4, min(9.0, eye_gap * 0.74))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        if item.key == "glasses":
+            painter.setPen(QPen(_qc(_INK, 210), 1.5))
+            painter.setBrush(_qc(_CREAM, 34))
+            for sign in (-1, 1):
+                painter.drawEllipse(
+                    QRectF(cx + sign * eye_gap - lens, y - lens, lens * 2, lens * 2)
+                )
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(_qc(_INK, 200), 1.1))
+            painter.drawLine(
+                QPointF(cx - eye_gap + lens, y), QPointF(cx + eye_gap - lens, y)
+            )
+            for sign in (-1, 1):
+                painter.drawLine(
+                    QPointF(cx + sign * (eye_gap + lens), y - 1),
+                    QPointF(cx + sign * (eye_gap + lens + 7), y - 5),
+                )
+        elif item.key == "monocle":
+            painter.setPen(QPen(_qc(_GOLD, 240), 1.8))
+            painter.setBrush(_qc(_CREAM, 45))
+            painter.drawEllipse(
+                QRectF(cx + eye_gap - lens - 1, y - lens - 1, (lens + 1) * 2, (lens + 1) * 2)
+            )
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(_qc(_GOLD, 160), 0.9))
+            chain = QPainterPath()
+            chain.moveTo(cx + eye_gap + lens + 1, y + 4)
+            chain.cubicTo(cx + eye_gap + 16, y + 18, cx + 12, cy + 30, cx + 4, cy + 34)
+            painter.drawPath(chain)
+        elif item.key == "sunglasses":
+            painter.setPen(QPen(_qc(_INK, 235), 1.3))
+            painter.setBrush(_qc(_INK, 218))
+            for sign in (-1, 1):
+                shade = QPainterPath()
+                shade.addRoundedRect(
+                    QRectF(cx + sign * eye_gap - lens - 1.5, y - lens * 0.8, (lens + 1.5) * 2, lens * 1.55),
+                    lens * 0.55,
+                    lens * 0.55,
+                )
+                painter.drawPath(shade)
+                painter.setPen(QPen(_qc(_INK, 230), 1.6))
+                painter.drawLine(
+                    QPointF(cx + sign * (eye_gap + lens + 1), y - lens * 0.4),
+                    QPointF(cx + sign * (eye_gap + lens + 7), y - 5),
+                )
+            painter.setBrush(_qc(_CREAM, 40))
+            painter.setPen(Qt.PenStyle.NoPen)
+            for sign in (-1, 1):
+                painter.drawEllipse(
+                    QPointF(cx + sign * eye_gap - lens * 0.35, y - lens * 0.25),
+                    1.2,
+                    1.2,
+                )
+        return
+
+    if item.style == "neck":
+        neck = cy + 24 - lift
+        if item.key == "bow_tie":
+            painter.setPen(QPen(_qc(buddy.trim, 150), 0.9))
+            painter.setBrush(_qc(_RED, 245))
+            for sign in (-1, 1):
+                wing = QPainterPath()
+                wing.moveTo(cx, neck)
+                wing.lineTo(cx + sign * 15, neck - 7)
+                wing.lineTo(cx + sign * 15, neck + 7)
+                wing.closeSubpath()
+                painter.drawPath(wing)
+            painter.setBrush(_qc(_mix(_RED, _INK, 0.3), 250))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(QRectF(cx - 4, neck - 3.5, 8, 7))
+        elif item.key == "scarf":
+            painter.setPen(QPen(_qc(buddy.trim, 150), 0.9))
+            painter.setBrush(_qc(_mix(_RED, glow, 0.25), 242))
+            painter.drawRoundedRect(QRectF(cx - 28, neck - 7, 56, 9), 4.5, 4.5)
+            tail = QPainterPath()
+            tail.moveTo(cx + 16, neck)
+            tail.lineTo(cx + 34, neck + 10)
+            tail.quadTo(cx + 37, neck + 18, cx + 28, neck + 20)
+            tail.lineTo(cx + 15, neck + 6)
+            tail.closeSubpath()
+            painter.setBrush(_qc(_mix(_RED, glow, 0.4), 238))
+            painter.drawPath(tail)
+            painter.setPen(QPen(_qc(_CREAM, 120), 0.8))
+            for row in range(2):
+                painter.drawLine(
+                    QPointF(cx + 18, neck + 6 + row * 5),
+                    QPointF(cx + 28, neck + 13 + row * 5),
+                )
+        elif item.key == "medal":
+            painter.setPen(QPen(_qc(_GOLD, 200), 0.9))
+            ribbon = QPainterPath()
+            ribbon.moveTo(cx - 9, neck - 2)
+            ribbon.lineTo(cx + 9, neck - 2)
+            ribbon.lineTo(cx + 4, neck + 6)
+            ribbon.lineTo(cx, neck + 3)
+            ribbon.lineTo(cx - 4, neck + 6)
+            ribbon.closeSubpath()
+            painter.setBrush(_qc(_mix(_RED, glow, 0.25), 240))
+            painter.drawPath(ribbon)
+            painter.setPen(QPen(_qc(_GOLD, 240), 1.4))
+            painter.setBrush(_qc(_GOLD, 250))
+            painter.drawEllipse(QPointF(cx, neck + 8), 6.2, 6.2)
+            painter.setBrush(_qc(_mix(_GOLD, _CREAM, 0.5), 250))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(QPointF(cx, neck + 8), 3.4, 3.4)
+        elif item.key == "headphones":
+            top = cy + head_dy
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(_qc(_INK, 235), 3.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            painter.drawArc(QRectF(cx - 30, top - 6, 60, 44), 20 * 16, 140 * 16)
+            for sign in (-1, 1):
+                painter.setPen(QPen(_qc(_INK, 235), 1.2))
+                painter.setBrush(_qc(glow, 240))
+                painter.drawRoundedRect(QRectF(cx + sign * 30 - 6, top + 12, 12, 20), 5, 5)
+                painter.setBrush(_qc(buddy.trim, 200))
+                painter.drawRoundedRect(QRectF(cx + sign * 30 - 3.4, top + 16, 6.8, 12), 3, 3)
+        return
+
+    # Hats. Anchored to the top of the head, scaled for the body.
+    painter.save()
+    painter.translate(cx, cy + head_dy)
+    painter.scale(head_scale, head_scale)
+    painter.setPen(Qt.PenStyle.NoPen)
+    if item.key == "beanie":
+        painter.setBrush(_qc(glow, 245))
+        painter.drawChord(QRectF(-18, -16, 36, 34), 0, 180 * 16)
+        painter.setBrush(_qc(_mix(glow, _INK, 0.25), 250))
+        painter.drawRoundedRect(QRectF(-19, -1, 38, 6), 3, 3)
+        painter.setBrush(_qc(_CREAM, 240))
+        painter.drawEllipse(QPointF(0, -20), 4.4, 4.2)
+    elif item.key == "party_hat":
+        painter.setBrush(_qc(_mix(_RED, glow, 0.3), 248))
+        hat = QPainterPath()
+        hat.moveTo(-14, 1)
+        hat.lineTo(0, -32)
+        hat.lineTo(14, 1)
+        hat.closeSubpath()
+        painter.drawPath(hat)
+        painter.setPen(QPen(_qc(_CREAM, 210), 1.5))
+        for row in (0.58, 0.34):
+            painter.drawLine(QPointF(-14 * row, -32 * (1 - row) + 1), QPointF(14 * row, -32 * (1 - row) + 1))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(_qc(_GOLD, 250))
+        painter.drawEllipse(QPointF(0, -34), 4.0, 4.0)
+    elif item.key == "top_hat":
+        painter.setBrush(_qc(_INK, 246))
+        painter.drawRoundedRect(QRectF(-13, -26, 26, 26), 2, 2)
+        painter.setBrush(_qc(_GOLD, 250))
+        painter.drawRect(QRectF(-13, -8, 26, 4))
+        painter.setBrush(_qc(_INK, 250))
+        painter.drawRoundedRect(QRectF(-22, -3, 44, 5), 2.5, 2.5)
+    elif item.key == "circlet":
+        # A band, not a halo: sit it down onto the forehead of the small flyer.
+        painter.translate(0, 9 if shape == "moth" else 3)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(_qc(_GOLD, 245), 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawArc(QRectF(-18, -9, 36, 20), 0, 180 * 16)
+        for x, size in ((-9, 1.5), (0, 2.1), (9, 1.5)):
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(_qc(_mix((255, 138, 92), _GOLD, 0.3), 250))
+            painter.drawEllipse(QPointF(x, -8), size, size)
+            painter.setBrush(_qc(_CREAM, 190))
+            painter.drawEllipse(QPointF(x, -8.6), size * 0.35, size * 0.35)
+    elif item.key == "wizard_hat":
+        painter.setBrush(_qc(_mix(glow, _INK, 0.55), 250))
+        hat = QPainterPath()
+        hat.moveTo(-17, 0)
+        hat.quadTo(-6, -14, 2, -22)
+        hat.quadTo(13, -32, 15, -35)
+        hat.quadTo(15, -20, 17, 0)
+        hat.closeSubpath()
+        painter.drawPath(hat)
+        painter.setBrush(_qc(_mix(glow, _INK, 0.45), 250))
+        painter.drawEllipse(QRectF(-23, -3, 46, 8))
+        painter.setBrush(_qc(_GOLD, 235))
+        for px, py, size in ((-6, -8, 1.6), (7, -14, 1.2), (0, -24, 1.1)):
+            painter.drawEllipse(QPointF(px, py), size, size)
+    elif item.key in ("crown", "crown_jewel"):
+        painter.setBrush(_qc(_GOLD, 250))
+        crown = QPainterPath()
+        crown.moveTo(-16, 0)
+        crown.lineTo(-16, -12)
+        crown.lineTo(-8, -5)
+        crown.lineTo(0, -15)
+        crown.lineTo(8, -5)
+        crown.lineTo(16, -12)
+        crown.lineTo(16, 0)
+        crown.closeSubpath()
+        painter.drawPath(crown)
+        painter.setBrush(_qc(_mix(_RED, glow, 0.2), 245))
+        painter.drawEllipse(QPointF(0, -5), 2.6, 2.6)
+        if item.key == "crown_jewel":
+            painter.setBrush(_qc(_CREAM, 245))
+            for sign in (-1, 1):
+                painter.drawEllipse(QPointF(sign * 9, -5.5), 1.7, 1.7)
+            painter.setBrush(_qc((120, 190, 255), 245))
+            painter.drawEllipse(QPointF(0, -12), 2.2, 2.2)
+    elif item.key == "propeller":
+        painter.setBrush(_qc(_RED, 246))
+        painter.drawChord(QRectF(-16, -12, 32, 26), 0, 180 * 16)
+        painter.setBrush(_qc(_GOLD, 245))
+        painter.drawRoundedRect(QRectF(-16, -1, 32, 5), 2.5, 2.5)
+        painter.setPen(QPen(_qc(_INK, 220), 1.6))
+        painter.drawLine(QPointF(0, -13), QPointF(0, -19))
+        painter.setPen(QPen(_qc(_RED, 240), 2.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        spin = math.sin(phase * 7.0) * 8.0
+        painter.drawLine(QPointF(-11, -20 + spin * 0.2), QPointF(11, -20 - spin * 0.2))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(_qc(_GOLD, 250))
+        painter.drawEllipse(QPointF(0, -20), 2.0, 2.0)
+    elif item.key == "flower":
+        painter.translate(15, -7)
+        painter.setBrush(_qc(_mix(glow, _CREAM, 0.35), 246))
+        for index in range(5):
+            angle = math.tau * index / 5.0
+            painter.drawEllipse(
+                QPointF(math.cos(angle) * 5.6, math.sin(angle) * 5.6), 3.0, 3.0
+            )
+        painter.setBrush(_qc(_GOLD, 250))
+        painter.drawEllipse(QPointF(0, 0), 2.2, 2.2)
+    painter.restore()
+
+
+def _mix(
+    first: tuple[int, int, int], second: tuple[int, int, int], amount: float
+) -> tuple[int, int, int]:
+    amount = max(0.0, min(1.0, amount))
+    return (
+        int(round(first[0] + (second[0] - first[0]) * amount)),
+        int(round(first[1] + (second[1] - first[1]) * amount)),
+        int(round(first[2] + (second[2] - first[2]) * amount)),
+    )
+
+
+def _draw_focus_watch(
+    painter: QPainter,
+    buddy: Character,
+    colors: dict[str, tuple[int, int, int]],
+    cx: float,
+    cy: float,
+    progress: float,
+    phase: float,
+) -> None:
+    """A pocket watch held in front: the vigil's one visible possession."""
+    progress = max(0.0, min(1.0, progress))
+    wx, wy, radius = cx, cy + 25.0, 14.0
+
+    # Chain from the buddy's chest down to the watch.
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.setPen(QPen(_qc(_GOLD, 190), 1.2))
+    chain = QPainterPath()
+    chain.moveTo(cx + 9, cy + 3)
+    chain.cubicTo(cx + 22, cy + 10, cx + 20, cy + 18, wx + 7, wy - 8)
+    painter.drawPath(chain)
+
+    # The case, with a pulse that tightens as the session nears its end.
+    pulse = 0.5 + 0.5 * math.sin(phase * (2.0 + 3.0 * progress))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(_qc(colors["edge"], int(30 + 45 * pulse)))
+    painter.drawEllipse(QPointF(wx, wy), radius + 6, radius + 6)
+    painter.setPen(QPen(_qc(_GOLD, 250), 2.4))
+    painter.setBrush(_qc(_CREAM, 252))
+    painter.drawEllipse(QPointF(wx, wy), radius, radius)
+    painter.setPen(QPen(_qc(_GOLD, 210), 1.8))
+    painter.drawEllipse(QPointF(wx, wy), radius - 3.4, radius - 3.4)
+
+    # Crown and a little bow at the top.
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(_qc(_GOLD, 250))
+    painter.drawRoundedRect(QRectF(wx - 3.2, wy - radius - 5.4, 6.4, 4.6), 1.6, 1.6)
+    painter.setBrush(_qc(colors["edge"], 240))
+    painter.drawEllipse(QPointF(wx, wy - radius - 6.0), 2.4, 2.0)
+
+    # Tick marks.
+    painter.setPen(QPen(_qc(_INK, 170), 1.0))
+    for index in range(12):
+        angle = math.tau * index / 12.0
+        inner = radius - 5.0 if index % 3 == 0 else radius - 4.2
+        painter.drawLine(
+            QPointF(wx + math.sin(angle) * inner, wy - math.cos(angle) * inner),
+            QPointF(wx + math.sin(angle) * (radius - 2.2), wy - math.cos(angle) * (radius - 2.2)),
+        )
+
+    # The hand sweeps the whole dial across the session: time you can see go.
+    angle = -math.pi / 2 + math.tau * progress
+    painter.setPen(QPen(_qc(colors["edge"], 245), 1.9, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    painter.drawLine(
+        QPointF(wx, wy),
+        QPointF(wx + math.cos(angle) * (radius - 4.0), wy + math.sin(angle) * (radius - 4.0)),
+    )
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(_qc(_GOLD, 255))
+    painter.drawEllipse(QPointF(wx, wy), 1.9, 1.9)
+
+    # Tiny studs beside the watch, so it reads as gripped.
+    painter.setBrush(_qc(buddy.body, 255))
+    painter.setPen(QPen(_qc(buddy.trim, 200), 1.0))
+    painter.drawEllipse(QPointF(wx - radius - 3.5, wy + 1), 4.2, 3.4)
+    painter.drawEllipse(QPointF(wx + radius + 3.5, wy + 1), 4.2, 3.4)
+
+
+def _draw_gesture(
+    painter: QPainter,
+    buddy: Character,
+    colors: dict[str, tuple[int, int, int]],
+    cx: float,
+    cy: float,
+    gesture: str,
+    progress: float,
+    phase: float,
+) -> None:
+    """Per-character flourishes: wing blur, a tongue, splashes, a throat puff."""
+    rise = _gesture_rise(progress)
+    if rise <= 0.02:
+        return
+    shape = buddy.body_shape
+    if gesture == "flutter":
+        if shape == "moth":
+            path = _wing_path()
+            for sign in (-1, 1):
+                for frame in range(3):
+                    blur = abs(math.sin((progress * 9.0 + frame * 0.3) * math.pi))
+                    alpha = int(60 * rise * blur)
+                    if alpha <= 2:
+                        continue
+                    painter.save()
+                    painter.translate(cx, cy - 6)
+                    painter.rotate(sign * (-24 + frame * 15))
+                    painter.scale(sign * 0.66, 0.66)
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(_qc(colors["core"], alpha))
+                    painter.drawPath(path)
+                    painter.restore()
+        else:
+            # An owl's wide, slow wingbeats.
+            for sign in (-1, 1):
+                for frame in range(2):
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.setPen(
+                        QPen(_qc(buddy.trim, int(70 * rise * (1.0 - frame * 0.4))), 1.4)
+                    )
+                    spread = 34 + frame * 7
+                    painter.drawArc(
+                        QRectF(cx + sign * 12 - spread / 2, cy - 30, spread, 34),
+                        (200 if sign < 0 else 320) * 16,
+                        60 * 16,
+                    )
+        # Motes shake loose from the wings.
+        painter.setPen(Qt.PenStyle.NoPen)
+        for index in range(5):
+            drift = (progress * 26.0 + index * 7.0) % 30.0
+            alpha = int(120 * rise * (1.0 - drift / 30.0))
+            x = cx + math.sin(phase * 1.7 + index * 1.9) * 30
+            painter.setBrush(_qc(colors["core"], alpha))
+            painter.drawEllipse(QPointF(x, cy + 22 - drift), 1.5, 1.5)
+        return
+
+    if gesture == "groom" and shape in ("cat", "dog"):
+        lick = (math.sin(progress * math.tau * 3.0 - math.pi / 2) + 1.0) / 2.0
+        mouth_y = cy - (14.0 if shape == "cat" else 4.0)
+        # A raised paw, arriving at the muzzle.
+        painter.setPen(QPen(_qc(buddy.trim, 200), 1.3))
+        painter.setBrush(_qc(buddy.body, 250))
+        painter.drawEllipse(QRectF(cx - 17, mouth_y + 2 - 5 * lick, 13, 8))
+        # The tongue itself, out and back.
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(_qc((240, 120, 145), 240))
+        painter.drawEllipse(QPointF(cx - 1, mouth_y + 2 + 3.2 * lick), 2.3, 2.7 + 1.2 * lick)
+        # Clean-fur twinkles.
+        for index in range(3):
+            angle = progress * 5.0 + index * 2.1
+            painter.setBrush(_qc(buddy.accent, int(120 * rise * (0.4 + 0.6 * abs(math.sin(angle))))))
+            painter.drawEllipse(
+                QPointF(cx + 30 + 6 * math.cos(angle), cy - 18 + 8 * math.sin(angle)), 1.3, 1.3
+            )
+        return
+
+    if gesture == "splash":
+        # Rings on the water and a fan of droplets.
+        for ring in range(2):
+            radius = 20 + ring * 11 + rise * 9
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(QColor(168, 220, 255, int(110 * rise * (1.0 - ring * 0.35))), 1.0))
+            painter.drawEllipse(QPointF(cx, cy + 34), radius, radius * 0.3)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for index in range(8):
+            angle = -math.pi * (0.15 + 0.7 * index / 7.0)
+            distance = (16 + 24 * rise) * (0.65 + 0.35 * math.sin(index * 2.1))
+            x = cx + math.cos(angle) * distance
+            y = cy + 32 + math.sin(angle) * distance * 0.7 - rise * 8
+            painter.setBrush(QColor(186, 228, 255, int(200 * rise)))
+            painter.drawEllipse(QPointF(x, y), 2.0, 2.6)
+        return
+
+    if gesture == "croak":
+        puff = abs(math.sin(progress * math.tau * 2.0))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(_qc(buddy.accent, int(120 + 100 * puff)))
+        painter.drawEllipse(QPointF(cx, cy + 15), 9 + 5 * puff, 5 + 3 * puff)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for index in range(2):
+            painter.setPen(QPen(_qc(buddy.trim, int(90 * rise * (1.0 - index * 0.5))), 1.0))
+            painter.drawArc(
+                QRectF(cx - 30 - index * 6, cy - 26 - index * 3, 60 + index * 12, 22),
+                200 * 16,
+                140 * 16,
+            )
+        return
+
+    if gesture == "flicker":
+        # Cold wisps peel off the sheet; the fade itself is in paint_scene.
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for index in range(3):
+            painter.setPen(QPen(_qc(colors["ring"], int(45 * rise * (1.0 - index * 0.25))), 1.0))
+            painter.drawEllipse(
+                QPointF(cx + math.sin(phase + index) * 9, cy + 2 + index * 8), 24 - index * 4, 26 - index * 4
+            )
+        return
+
+    if gesture == "binky":
+        # Little puffs of dust where the feet left the desk.
+        for sign in (-1, 1):
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(_qc(buddy.accent, int(110 * (1.0 - rise) + 30)))
+            painter.drawEllipse(QPointF(cx + sign * (24 + 10 * rise), cy + 34), 5 - 1.5 * rise, 2.0)
 
 
 # One short "something happens" window per slow cycle. The phase already moves
@@ -261,6 +889,24 @@ def _draw_flight_trail(
         )
 
 
+def _draw_bubbles(
+    painter: QPainter,
+    cx: float,
+    cy: float,
+    envelope: float,
+) -> None:
+    height = 10 + envelope * 10
+    for index in range(3):
+        alpha = int(150 * envelope * (1.0 - index / 3.0))
+        painter.setPen(QPen(QColor(190, 230, 255, alpha), 0.8))
+        painter.setBrush(QColor(170, 218, 255, int(alpha * 0.35)))
+        painter.drawEllipse(
+            QPointF(cx + 18 + index * 7, cy - 8 - height - index * 9),
+            2.6 - index * 0.4,
+            2.6 - index * 0.4,
+        )
+
+
 def _draw_idle_extras(
     painter: QPainter,
     buddy: Character,
@@ -271,52 +917,92 @@ def _draw_idle_extras(
     animate: bool,
     visual: str,
 ) -> None:
-    """The cat's yarn, the swimmers' bubbles, a small ghostly shiver."""
+    """Small continuous behaviours: grooming, ripples, yarn, drifting feathers."""
     if not animate or visual != CALM:
         return
     shape = buddy.body_shape
     envelope = _action_envelope(phase)
     accent = buddy.accent
-    if shape == "cat" and envelope > 0.05:
-        # A yarn ball gets batted around, then rolls back out of reach.
-        roll = envelope * 8.0 + math.sin(phase * 6.0) * envelope * 2.0
-        bx, by = cx + 34 + roll, cy + 34
-        painter.setPen(QPen(_qc(buddy.trim, 220), 1.2))
-        painter.setBrush(_qc(accent, 245))
-        painter.drawEllipse(QPointF(bx, by), 6.2, 6.2)
-        painter.setPen(QPen(_qc(buddy.trim, 150), 0.8))
-        painter.drawArc(QRectF(bx - 5, by - 4, 10, 8), 30 * 16, 120 * 16)
-        painter.drawArc(QRectF(bx - 5, by - 1, 10, 6), 210 * 16, 110 * 16)
-        string = QPainterPath()
-        string.moveTo(bx + 5, by + 2)
-        string.cubicTo(bx + 14, by + 8, cx + 12, cy + 26, cx + 4, cy + 24)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(_qc(accent, 150), 1.0))
-        painter.drawPath(string)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(_qc(buddy.body, 255))
-        painter.drawEllipse(QRectF(bx - 13, by - 1, 9, 6))
-    elif shape in ("axolotl", "frog") and envelope > 0.05:
-        height = 10 + envelope * 10
-        for index in range(3):
-            alpha = int(150 * envelope * (1.0 - index / 3.0))
-            painter.setPen(QPen(QColor(190, 230, 255, alpha), 0.8))
-            painter.setBrush(QColor(170, 218, 255, int(alpha * 0.35)))
+    # Self-care runs on its own slow cycle, offset from the play envelope.
+    groom = _action_envelope(phase, start=0.18, span=0.17, period=27.0)
+
+    if shape in ("cat", "dog"):
+        if groom > 0.05:
+            # A raised paw, a pink tongue, three unhurried licks.
+            mouth_y = cy - 16 if shape == "cat" else cy - 4
+            lick = (math.sin(phase * 7.5) + 1.0) / 2.0
+            painter.setPen(QPen(_qc(buddy.trim, 205), 1.1))
+            painter.setBrush(_qc(buddy.body, 252))
+            painter.drawEllipse(QRectF(cx - 18, mouth_y + 6 - 7 * groom, 12, 8))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(_qc((242, 128, 152), 238))
             painter.drawEllipse(
-                QPointF(cx + 18 + index * 7, cy - 8 - height - index * 9),
-                2.6 - index * 0.4,
-                2.6 - index * 0.4,
+                QPointF(cx - 3, mouth_y + 4 + 3.2 * lick), 2.2, 2.5 + 1.1 * lick
             )
-    elif shape == "dog" and envelope > 0.05:
-        # A tiny tennis ball that bounces when the dog gets the zoomies.
-        bounce = abs(math.sin(phase * 3.0)) * envelope * 8.0
-        bx, by = cx + 43, cy + 35 - bounce
-        painter.setPen(QPen(_qc(buddy.trim, 190), 0.8))
-        painter.setBrush(_qc((155, 211, 128), 235))
-        painter.drawEllipse(QPointF(bx, by), 5.0, 5.0)
-        painter.setPen(QPen(_qc((245, 250, 220), 190), 0.8))
-        painter.drawArc(QRectF(bx - 3, by - 4, 6, 8), 70 * 16, 220 * 16)
-    elif shape == "bunny" and envelope > 0.05:
+            for index in range(3):
+                angle = phase * 3.0 + index * 2.1
+                painter.setBrush(_qc(accent, int(110 * groom * abs(math.sin(angle)))))
+                painter.drawEllipse(
+                    QPointF(cx + 26 + 5 * math.cos(angle), cy - 16 + 7 * math.sin(angle)),
+                    1.2,
+                    1.2,
+                )
+            return
+        if shape == "cat" and envelope > 0.05:
+            # A yarn ball gets batted around, then rolls back out of reach.
+            roll = envelope * 8.0 + math.sin(phase * 6.0) * envelope * 2.0
+            bx, by = cx + 34 + roll, cy + 34
+            painter.setPen(QPen(_qc(buddy.trim, 220), 1.2))
+            painter.setBrush(_qc(accent, 245))
+            painter.drawEllipse(QPointF(bx, by), 6.2, 6.2)
+            painter.setPen(QPen(_qc(buddy.trim, 150), 0.8))
+            painter.drawArc(QRectF(bx - 5, by - 4, 10, 8), 30 * 16, 120 * 16)
+            painter.drawArc(QRectF(bx - 5, by - 1, 10, 6), 210 * 16, 110 * 16)
+            string = QPainterPath()
+            string.moveTo(bx + 5, by + 2)
+            string.cubicTo(bx + 14, by + 8, cx + 12, cy + 26, cx + 4, cy + 24)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(_qc(accent, 150), 1.0))
+            painter.drawPath(string)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(_qc(buddy.body, 255))
+            painter.drawEllipse(QRectF(bx - 13, by - 1, 9, 6))
+        elif shape == "dog" and envelope > 0.05:
+            # A tiny tennis ball that bounces when the dog gets the zoomies.
+            bounce = abs(math.sin(phase * 3.0)) * envelope * 8.0
+            bx, by = cx + 43, cy + 35 - bounce
+            painter.setPen(QPen(_qc(buddy.trim, 190), 0.8))
+            painter.setBrush(_qc((155, 211, 128), 235))
+            painter.drawEllipse(QPointF(bx, by), 5.0, 5.0)
+            painter.setPen(QPen(_qc((245, 250, 220), 190), 0.8))
+            painter.drawArc(QRectF(bx - 3, by - 4, 6, 8), 70 * 16, 220 * 16)
+        return
+
+    if shape == "axolotl":
+        # The water is never completely still around Nori.
+        for ring in range(2):
+            wave = (phase * 0.26 + ring * 0.5) % 1.0
+            alpha = int(62 * (1.0 - wave))
+            if alpha <= 1:
+                continue
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(QColor(172, 222, 255, alpha), 0.9))
+            radius = 16 + wave * 24
+            painter.drawEllipse(QPointF(cx, cy + 34), radius, radius * 0.3)
+        if envelope > 0.05:
+            _draw_bubbles(painter, cx, cy, envelope)
+        return
+
+    if shape == "frog":
+        pulse = 0.5 + 0.5 * math.sin(phase * 2.2)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(_qc(accent, int(60 + 55 * pulse)))
+        painter.drawEllipse(QPointF(cx, cy + 15), 8 + pulse, 4.4 + 0.7 * pulse)
+        if envelope > 0.05:
+            _draw_bubbles(painter, cx, cy, envelope)
+        return
+
+    if shape == "bunny" and envelope > 0.05:
         # Two carrot-like twinkles pop up beside the ears on a happy hop.
         for sign in (-1, 1):
             x, y = cx + sign * 42, cy - 47 - envelope * 8
@@ -941,6 +1627,9 @@ def _draw_owl(
 
     # Folded wings stick out at the sides; the tips flap on a busy desk.
     flap = math.sin(phase * 4.0) * min(1.0, typing + (0.35 if visual == SCATTER else 0.0)) * 5.0
+    if visual != SLEEPING:
+        # Even a folded wing breathes; the owl reads as alive when you look over.
+        flap += math.sin(phase * 2.1) * 2.4
     for sign in (-1, 1):
         wing = QPainterPath()
         wing.moveTo(cx + sign * 22, cy - 2 + bob)
@@ -1306,6 +1995,28 @@ def _draw_ring(
         _draw_burst(painter, cx, cy, colors, celebrate)
 
 
+def _draw_trick_sparkles(
+    painter: QPainter,
+    cx: float,
+    cy: float,
+    colors: dict[str, tuple[int, int, int]],
+    sparkle: float,
+    phase: float,
+) -> None:
+    """Four-point twinkles orbiting the buddy while a trick is running."""
+    painter.setPen(Qt.PenStyle.NoPen)
+    for index in range(6):
+        angle = phase * 1.7 + index * math.tau / 6.0
+        radius = 42.0 + 15.0 * math.sin(phase * 2.1 + index)
+        x = cx + math.cos(angle) * radius
+        y = cy + math.sin(angle) * radius * 0.78
+        size = 1.2 + 1.7 * abs(math.sin(phase * 3.0 + index))
+        alpha = int(210 * sparkle * (0.45 + 0.55 * abs(math.sin(phase * 2.0 + index))))
+        painter.setBrush(_qc(colors["core"], alpha))
+        painter.drawEllipse(QPointF(x, y), size, size * 0.34)
+        painter.drawEllipse(QPointF(x, y), size * 0.34, size)
+
+
 def _draw_burst(
     painter: QPainter,
     cx: float,
@@ -1418,14 +2129,20 @@ def _draw_sparkline(
         )
 
 
-def build_tray_icon(palette: str, character: Character | str = "moth") -> QIcon:
+def build_tray_icon(
+    palette: str, character: Character | str = "moth", coat: str = NATURAL
+) -> QIcon:
     """A small buddy, scaled down from the same body the window paints."""
     buddy = get_character(character if isinstance(character, str) else character.key)
+    if coat != NATURAL:
+        buddy = recolour(buddy, coat)
     pix = QPixmap(64, 64)
     pix.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pix)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     colors = PALETTES.get(palette, PALETTES["amber"])
+    if coat != NATURAL:
+        colors = tinted_palette(colors, coat)
     painter.translate(32, 36)
     painter.scale(0.44, 0.44)
     painter.translate(-CANVAS_W / 2, -BODY_Y)

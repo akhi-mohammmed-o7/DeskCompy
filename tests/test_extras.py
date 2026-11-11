@@ -49,16 +49,19 @@ class SafetyTests(unittest.TestCase):
 class DetectionTests(unittest.TestCase):
     def test_short_window_still_reads_a_flurry_as_play(self) -> None:
         self.assertEqual(classify(0.5, 2.0), GAMING)
-        self.assertEqual(classify(2.4, 0.0), STUDY)
+        # Fast typing is a working rhythm, not a study one.
+        self.assertEqual(classify(2.4, 0.0), WORK)
         self.assertEqual(classify(0.5, 0.3), WORK)
         self.assertEqual(classify(0.0, 0.0), "chill")
 
     def test_wide_window_catches_modest_clicking(self) -> None:
-        # Neither five-second window is a flurry, but half a minute of
-        # click-heavy input is play, not a spreadsheet.
-        self.assertEqual(classify(0.6, 0.5, wide_keys=0.7, wide_clicks=0.55), GAMING)
-        # A slow turn-based game: mostly clicks, low volume, sustained.
-        self.assertEqual(classify(0.2, 0.3, wide_keys=0.2, wide_clicks=0.3), GAMING)
+        # Neither five-second window is a flurry, but half a minute of almost
+        # nothing but clicking is play, not a spreadsheet.
+        self.assertEqual(
+            classify(0.3, 0.9, wide_keys=0.2, wide_clicks=0.8), GAMING
+        )
+        # Mixed typing and occasional clicks stays work.
+        self.assertEqual(classify(0.6, 0.5, wide_keys=0.7, wide_clicks=0.55), WORK)
 
     def test_wide_window_separates_work_typing_from_study(self) -> None:
         self.assertEqual(classify(1.4, 0.05, wide_keys=1.1, wide_clicks=0.02), STUDY)

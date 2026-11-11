@@ -31,6 +31,9 @@ RAPID_CLICKS = 4
 HOLD_SECONDS = 6.0
 # Fast enough that the buddy's mirroring feels live, slow enough to stay cheap.
 EVALUATE_EVERY_MS = 250
+# Per-second key and click counts, kept for half a minute. The shape of this
+# history separates steady note-taking from fast bursts of real work.
+BUCKET_SECONDS = 30
 
 
 @dataclass(frozen=True)
@@ -43,6 +46,8 @@ class Pulse:
     wide_key_count: int = 0
     wide_click_count: int = 0
     wide_seconds: float = WIDE_WINDOW_SECONDS
+    # (keys, clicks) for each of the last 30 seconds, oldest first.
+    buckets: tuple[tuple[int, int], ...] = ()
 
 
 def classify(key_count: int, click_count: int, idle_seconds: float, previous: str) -> str:
@@ -89,6 +94,10 @@ class InputTracker(QObject):
         self._held: set[object] = set()
         self._fresh_keys = 0
         self._fresh_clicks = 0
+        self._bucket_started = time.monotonic()
+        self._bucket_keys = 0
+        self._bucket_clicks = 0
+        self._buckets: deque[tuple[int, int]] = deque(maxlen=BUCKET_SECONDS)
         self._last_input = time.monotonic()
         self._state = CALM
         self._keyboard = None
@@ -149,8 +158,10 @@ class InputTracker(QObject):
             self._last_input = now
             if kind == "key":
                 self._fresh_keys += 1
+                self._bucket_keys += 1
             else:
                 self._fresh_clicks += 1
+                self._bucket_clicks += 1
             horizon = now - WIDE_WINDOW_SECONDS
             while self._events and self._events[0][0] < horizon:
                 self._events.popleft()
@@ -181,9 +192,24 @@ class InputTracker(QObject):
             return
         self._mark("click")
 
+    def _capture_seconds(self, now: float) -> None:
+        """Roll the current second into the history, filling any quiet ones."""
+        elapsed = int(now - self._bucket_started)
+        if elapsed <= 0:
+            return
+        # Quiet seconds first, then the second that just finished, so the
+        # deque stays oldest-first for the continuity check.
+        for _ in range(min(elapsed, BUCKET_SECONDS) - 1):
+            self._buckets.append((0, 0))
+        self._buckets.append((self._bucket_keys, self._bucket_clicks))
+        self._bucket_started = now
+        self._bucket_keys = 0
+        self._bucket_clicks = 0
+
     def _evaluate(self) -> None:
         now = time.monotonic()
         with self._lock:
+            self._capture_seconds(now)
             wide_horizon = now - WIDE_WINDOW_SECONDS
             while self._events and self._events[0][0] < wide_horizon:
                 self._events.popleft()
@@ -214,5 +240,6 @@ class InputTracker(QObject):
                 idle_seconds=idle,
                 wide_key_count=wide_keys,
                 wide_click_count=wide_clicks,
+                buckets=tuple(self._buckets),
             )
         )

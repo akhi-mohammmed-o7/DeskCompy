@@ -62,21 +62,21 @@ class GlimmerTests(unittest.TestCase):
 
 
 class SettingsFieldTests(unittest.TestCase):
-    def test_history_and_veil_roundtrip(self) -> None:
+    def test_history_and_dim_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             target = Path(folder) / "settings.json"
             original = settings_store.settings_file
             settings_store.settings_file = lambda: target
             try:
-                Settings(veil=True, history={"2026-11-09": 42.5}).save()
+                Settings(dim_focus=False, history={"2026-11-09": 42.5}).save()
                 loaded = load_settings()
-                self.assertTrue(loaded.veil)
+                self.assertFalse(loaded.dim_focus)
                 self.assertEqual(loaded.history, {"2026-11-09": 42.5})
 
                 target.write_text(
                     json.dumps(
                         {
-                            "veil": "yes",
+                            "dim_focus": "yes",
                             "history": {
                                 "2026-11-09": 30,
                                 "2026-11-10": -5,
@@ -89,7 +89,7 @@ class SettingsFieldTests(unittest.TestCase):
                     encoding="utf-8",
                 )
                 salvaged = load_settings()
-                self.assertFalse(salvaged.veil)
+                self.assertTrue(salvaged.dim_focus)
                 self.assertEqual(salvaged.history, {"2026-11-09": 30.0})
             finally:
                 settings_store.settings_file = original

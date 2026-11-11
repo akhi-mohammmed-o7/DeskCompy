@@ -6,11 +6,13 @@ import json
 import logging
 from dataclasses import asdict, dataclass, field
 
+import focus_history
 from activity import CHILL, GAMING, STUDY, WORK
 from characters import CHARACTERS, DEFAULT_CHARACTER
 from paths import settings_file
+from rewards import ACCESSORY_KEYS, DEFAULT_ACCESSORY
 from safety import clean_text
-from theme import AMBER, PALETTES
+from theme import AMBER, COAT_LABELS, NATURAL, PALETTES
 
 
 @dataclass
@@ -27,8 +29,8 @@ class Settings:
     glimmer_seconds: float = 0.0
     # ISO date -> seconds finished on that day.
     history: dict[str, float] = field(default_factory=dict)
-    # Keep the room dimmed for the whole focus vigil.
-    veil: bool = False
+    # Dim the desktop while a focus timer runs. Never a standing state.
+    dim_focus: bool = True
     # Which buddy is perched: a built-in or a custom folder id.
     character: str = DEFAULT_CHARACTER
     # What the plate and bubble call them. Blank keeps the buddy's own name.
@@ -38,8 +40,20 @@ class Settings:
     idle_animations: bool = True
     mirror_particles: bool = True
     auto_talk: bool = False
+    # Start with Windows. The registry entry, not this flag, is the truth.
+    launch_at_start: bool = False
     # "auto" lets the rhythm decide; anything else is a deliberate pin.
     activity_pin: str = "auto"
+    # Coat colour mixed into the buddy's own palette.
+    coat: str = NATURAL
+    # Equipped accessory id; only an earned one is ever drawn.
+    accessory: str = DEFAULT_ACCESSORY
+    # Last chosen focus length, and the reward ledger.
+    focus_minutes: int = 25
+    focus_sessions: int = 0
+    focus_minutes_total: float = 0.0
+    # Finished sessions as "YYYY-MM-DDTHH:MM|minutes"; drives the log and streaks.
+    focus_log: list[str] = field(default_factory=list)
 
     def save(self) -> None:
         path = settings_file()
@@ -107,8 +121,12 @@ def load_settings() -> Settings:
                 continue
             clean[key] = float(value)
         settings.history = dict(sorted(clean.items())[-14:])
-    if isinstance(raw.get("veil"), bool):
-        settings.veil = raw["veil"]
+    # Older builds had a standing "dim the lights" switch. Dimming is now
+    # tied to the focus timer, so a saved veil only means "keep dimming".
+    if isinstance(raw.get("dim_focus"), bool):
+        settings.dim_focus = raw["dim_focus"]
+    elif isinstance(raw.get("veil"), bool) and raw["veil"]:
+        settings.dim_focus = True
     character = raw.get("character")
     if isinstance(character, str) and character in CHARACTERS:
         settings.character = character
@@ -118,7 +136,7 @@ def load_settings() -> Settings:
     chatter = raw.get("chatter")
     if isinstance(chatter, str) and chatter in ("quiet", "balanced", "chatty"):
         settings.chatter = chatter
-    for field_name in ("idle_animations", "mirror_particles"):
+    for field_name in ("idle_animations", "mirror_particles", "launch_at_start"):
         if isinstance(raw.get(field_name), bool):
             setattr(settings, field_name, raw[field_name])
     # Ambient lines were enabled by default in early builds. Turn that legacy
@@ -130,4 +148,27 @@ def load_settings() -> Settings:
     pin = raw.get("activity_pin")
     if pin in ("auto", STUDY, GAMING, WORK, CHILL):
         settings.activity_pin = pin
+    coat = raw.get("coat")
+    if isinstance(coat, str) and coat in COAT_LABELS:
+        settings.coat = coat
+    accessory = raw.get("accessory")
+    if isinstance(accessory, str) and accessory in ACCESSORY_KEYS:
+        settings.accessory = accessory
+    focus_minutes = _opt_int(raw.get("focus_minutes"))
+    if focus_minutes is not None:
+        settings.focus_minutes = max(5, min(60, focus_minutes))
+    sessions = _opt_int(raw.get("focus_sessions"))
+    if sessions is not None and sessions >= 0:
+        settings.focus_sessions = sessions
+    total = raw.get("focus_minutes_total")
+    if isinstance(total, (int, float)) and not isinstance(total, bool) and total >= 0:
+        settings.focus_minutes_total = float(total)
+    log = raw.get("focus_log")
+    if isinstance(log, list):
+        clean_log = [
+            item
+            for item in log
+            if isinstance(item, str) and focus_history.parse(item) is not None
+        ]
+        settings.focus_log = clean_log[-focus_history.MAX_ENTRIES:]
     return settings

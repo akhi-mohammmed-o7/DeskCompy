@@ -20,19 +20,60 @@ from activity import (  # noqa: E402
     WORK,
     ActivityJudge,
     classify,
+    typing_continuity,
 )
 from characters import CHARACTER_ORDER, CHARACTERS, get, next_key  # noqa: E402
 from chatter import COOLDOWN, LINES, SITUATIONS, Chatter  # noqa: E402
 from reactions import MAX_KEYCAPS, MAX_RIPPLES, Mirror  # noqa: E402
+from tricks import tricks_for  # noqa: E402
 from settings_store import Settings, load_settings  # noqa: E402
 
 
 class ActivityTests(unittest.TestCase):
     def test_rates_map_to_activities(self) -> None:
-        self.assertEqual(classify(2.4, 0.0), STUDY)
+        # Fast typing is work; steady note-paced typing is study.
+        self.assertEqual(classify(2.4, 0.0), WORK)
+        self.assertEqual(classify(1.2, 0.0, continuity=0.9), STUDY)
+        self.assertEqual(classify(1.2, 0.4, continuity=0.9), WORK)
         self.assertEqual(classify(0.5, 2.0), GAMING)
         self.assertEqual(classify(0.5, 0.3), WORK)
+        self.assertEqual(classify(0.2, 0.2), WORK)
         self.assertEqual(classify(0.0, 0.0), CHILL)
+
+    def test_a_shy_typing_rate_is_not_studying(self) -> None:
+        # A single tap, or intermittent keys with no continuity, is just work.
+        self.assertEqual(classify(0.6, 0.0, continuity=0.1), WORK)
+        self.assertEqual(classify(0.05, 0.0), CHILL)
+
+    def test_slow_clicking_is_work_not_gaming(self) -> None:
+        self.assertEqual(classify(0.0, 0.4), WORK)
+        self.assertEqual(classify(0.0, 1.7), GAMING)
+        # Sustained clicking with almost no typing also reads as play.
+        self.assertEqual(
+            classify(0.2, 0.8, wide_keys=0.1, wide_clicks=0.8), GAMING
+        )
+
+    def test_a_short_pause_keeps_the_desk_busy(self) -> None:
+        judge = ActivityJudge()
+        self.assertEqual(judge.observe(3, 0, 0.1, now=0), WORK)
+        self.assertEqual(judge.observe(0, 0, 3.0, now=1), WORK)
+        self.assertEqual(judge.observe(0, 0, 6.0, now=2), WORK)
+        self.assertEqual(judge.observe(0, 0, 23.0, now=3), CHILL)
+
+    def test_gaming_lingers_briefly_then_clears(self) -> None:
+        judge = ActivityJudge()
+        judge.observe(0, 2, 0.1, now=0)
+        judge.observe(0, 2, 0.1, now=1)
+        self.assertEqual(judge.mode, GAMING)
+        self.assertEqual(judge.observe(0, 0, 4.0, now=2), GAMING)
+        self.assertEqual(judge.observe(0, 0, 9.0, now=3), CHILL)
+
+    def test_continuity_needs_real_history(self) -> None:
+        self.assertIsNone(typing_continuity([(3, 0), (2, 0)]))
+        busy = [(2, 0)] * 10 + [(0, 1)] * 10
+        self.assertAlmostEqual(typing_continuity(busy), 0.5)
+        steady = [(1, 0)] * 20
+        self.assertAlmostEqual(typing_continuity(steady), 1.0)
 
     def test_five_quiet_minutes_is_away(self) -> None:
         judge = ActivityJudge()
@@ -77,6 +118,15 @@ class RosterTests(unittest.TestCase):
                 self.assertIn(situation, LINES[key], f"{key} is silent on {situation}")
                 self.assertIn(situation, COOLDOWN)
                 self.assertTrue(LINES[key][situation])
+
+    def test_every_body_has_its_own_performances(self) -> None:
+        for key in CHARACTER_ORDER:
+            pool = tricks_for(CHARACTERS[key].body_shape)
+            self.assertTrue(pool, f"{key} has no tricks")
+            self.assertTrue(all(trick.key for trick in pool))
+            # Each body keeps at least one gesture of its own, not just travel.
+            self.assertTrue(any(trick.gesture for trick in pool), key)
+        self.assertTrue(tricks_for("dragon"))
 
 
 class ChatterTests(unittest.TestCase):

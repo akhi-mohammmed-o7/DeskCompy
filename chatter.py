@@ -33,6 +33,7 @@ SITUATIONS = (
     "study_grind",
     "game_hype",
     "smalltalk",
+    "trick",
 )
 
 # Seconds before the same kind of line may appear again. Zero means "any time
@@ -58,6 +59,7 @@ COOLDOWN = {
     "study_grind": 420.0,
     "game_hype": 300.0,
     "smalltalk": 200.0,
+    "trick": 120.0,
 }
 
 # No two lines closer together than this, unless the caller forces one.
@@ -147,6 +149,10 @@ LINES: dict[str, dict[str, tuple[str, ...]]] = {
             "Tiny thought: the desk would be lost without you.",
             "I've decided this is the best corner of the internet. Very cozy.",
         ),
+        "trick": (
+            "Hold on. Gotta do a lap around the desk.",
+            "Unplanned wing inspection. Official moth business.",
+        ),
     },
     "cat": {
         "meet": (
@@ -230,6 +236,10 @@ LINES: dict[str, dict[str, tuple[str, ...]]] = {
         "smalltalk": (
             "I've been staring at the wall. It blinked first.",
             "If we're quiet long enough, the pigeon outside wins.",
+        ),
+        "trick": (
+            "Parkour. It's a lifestyle.",
+            "I was not zooming. I was patrolling.",
         ),
     },
     "frog": {
@@ -315,6 +325,10 @@ LINES: dict[str, dict[str, tuple[str, ...]]] = {
             "I've been watching a dust mote. It's winning the race.",
             "If you're bored, we can stare at the wall together. Ribbit.",
         ),
+        "trick": (
+            "Unauthorized hop break! Ribbit!",
+            "Did you see that? I didn't. Ribbit.",
+        ),
     },
     "ghost": {
         "meet": (
@@ -398,6 +412,10 @@ LINES: dict[str, dict[str, tuple[str, ...]]] = {
         "smalltalk": (
             "I've been practicing my ominous floating. Want to see?",
             "Quiet hour. The dust bunnies are holding a meeting.",
+        ),
+        "trick": (
+            "Watch this. A spooky little spiral.",
+            "Boo! That one was mostly for me.",
         ),
     },
     "axolotl": {
@@ -483,6 +501,10 @@ LINES: dict[str, dict[str, tuple[str, ...]]] = {
             "The water is nice today. So is this desk. Cozy.",
             "I've been thinking about bubbles. Big thoughts. Round thoughts.",
         ),
+        "trick": (
+            "Gill wiggle rodeo. Please don't ask.",
+            "Regeneration cartwheel! Mostly wiggling.",
+        ),
     },
 }
 
@@ -503,6 +525,7 @@ LINES["dog"] = {
     "focus_done": ("You did it! I am wagging at a frankly unsafe speed.", "Timer finished. You get a stretch; I get one imaginary treat."),
     "game_hype": ("YES! Fetch that win! I will bark at the scoreboard.", "That move was so good my tail hit the imaginary lamp."),
     "smalltalk": ("I have a very important question: walk now or walk later?", "I saw a dust bunny. I made a friend. It was a bunny."),
+    "trick": ("ZOOMIES. Cannot be stopped, only admired.", "I knocked nothing over. Please check back later."),
 }
 LINES["bunny"] = {
     **LINES["frog"],
@@ -520,6 +543,7 @@ LINES["bunny"] = {
     "focus_done": ("Time to stretch your legs. I will demonstrate a hop.", "You did it! I am doing a tiny celebratory binky."),
     "game_hype": ("Hop! Hop! Victory! I have no idea what the buttons do!", "My ears are flapping from the excitement. Keep going!"),
     "smalltalk": ("I was counting my whiskers. Lost count at whisker three.", "If I had a tiny teacup, this would be a very cozy desk."),
+    "trick": ("Binky alert! This is the happy jump. Watch closely.", "Ears up, brain off, hopping now."),
 }
 LINES["owl"] = {
     **LINES["moth"],
@@ -537,6 +561,7 @@ LINES["owl"] = {
     "focus_done": ("Well done. Even the moon is impressed.", "Timer complete. Stretch your wings. You have earned it."),
     "game_hype": ("Excellent reflexes. I saw that in the corner of both eyes.", "Victory is a branch. You are perched on it."),
     "smalltalk": ("Fun fact: owls can turn their heads. I will not demonstrate.", "I have been thinking. It is a very quiet hobby."),
+    "trick": ("A rare owl maneuver. Consider yourself honored.", "I shall glide with dignity. Mostly dignity."),
 }
 
 # Used only if a future character forgets a situation. Keeps the buddy talking.

@@ -48,6 +48,10 @@ class RitualClock(QObject):
             return 0
         return max(0, int(round(self._focus_end - time.time())))
 
+    def focus_total_minutes(self) -> int:
+        """The length of the running (or last) vigil, rounded to whole minutes."""
+        return max(1, int(round(self._focus_total / 60)))
+
     def focus_progress(self) -> float:
         """0 when the vigil starts, 1 when it is over."""
         if not self.focus_active() or self._focus_total <= 0:

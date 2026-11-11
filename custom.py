@@ -75,9 +75,9 @@ buddy.json fields:
   lines     optional kind -> list of lines. Kinds include:
             meet, study, game, work, chill, away, back, poke, late, long,
             focus_start, focus_done, water, click, type, work_tired, fun,
-            study_grind, game_hype, smalltalk
+            study_grind, game_hype, smalltalk, trick
 
-Then choose Reload custom buddies from the companion menu. Files are local;
+Then restart the companion; folders are read at startup. Files are local;
 the app never downloads or executes anything from this folder. Images are
 rejected if they are over 4 MB or larger than 2048 x 2048, and text is capped
 and stripped of invisible control characters.

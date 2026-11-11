@@ -17,13 +17,12 @@ import time
 from functools import partial
 from html import escape as html_escape
 
-from PyQt6.QtCore import QPoint, QPointF, QRect, QRectF, QUrl, Qt, QTimer
+from PyQt6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer
 from PyQt6.QtGui import (
     QAction,
     QActionGroup,
     QColor,
     QCursor,
-    QDesktopServices,
     QFont,
     QGuiApplication,
     QPainter,
@@ -32,21 +31,28 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QFrame,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMenu,
     QPlainTextEdit,
     QPushButton,
+    QRadioButton,
+    QScrollArea,
     QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
 
+import autostart
+import focus_history
 import glimmer
 from activity import (
     ACTIVITY_LABELS,
@@ -62,17 +68,20 @@ from characters import CHARACTER_ORDER, CHARACTERS, get as get_character, next_k
 from chatter import Chatter
 from chime import play as play_chime
 from converse import MAX_QUESTION, reply as converse_reply
-from custom import custom_dirs, install_custom_buddies, make_template
+from custom import custom_dirs, install_custom_buddies
 from paths import asset_dirs
 from safety import clean_text
 from painter import CANVAS_H, CANVAS_W, BODY_Y, build_tray_icon, paint_scene
 from reactions import Mirror
+import rewards
+import sounds
 from rituals import RitualClock
 from settings_store import Settings, load_settings
 from sprites import SpriteLibrary
 from states import CALM, FOCUS, SCATTER, SLEEPING, WORKING
-from theme import PALETTE_LABELS, PALETTE_ORDER
+from theme import COAT_LABELS, COAT_ORDER, PALETTE_LABELS, PALETTE_ORDER
 from tracker import BURST_WINDOW_SECONDS, WIDE_WINDOW_SECONDS, InputTracker, Pulse
+from tricks import DASH, PEEK, Trick, sample as sample_trick, tricks_for
 
 log = logging.getLogger("lumen")
 
@@ -542,6 +551,14 @@ class CustomizeDialog(QDialog):
         hint.setObjectName("hint")
         layout.addWidget(hint)
 
+        def section(text: str) -> QLabel:
+            label = QLabel(text)
+            label.setStyleSheet(
+                "font: 600 9pt 'Segoe UI'; color: #ffc79a; margin-top: 6px;"
+            )
+            return label
+
+        layout.addWidget(section("Companion"))
         form = QFormLayout()
         form.setSpacing(8)
         self.name_edit = QLineEdit()
@@ -558,6 +575,26 @@ class CustomizeDialog(QDialog):
         form.addRow("Small talk", self.chatter_box)
         layout.addLayout(form)
 
+        layout.addWidget(section("Look"))
+        look = QFormLayout()
+        look.setSpacing(8)
+        self.coat_box = QComboBox()
+        for key in COAT_ORDER:
+            self.coat_box.addItem(COAT_LABELS[key], key)
+        coat_index = self.coat_box.findData(values.get("coat", "natural"))
+        self.coat_box.setCurrentIndex(max(0, coat_index))
+        self.coat_box.setToolTip("A tint mixed into this buddy's fur and trim.")
+        look.addRow("Coat", self.coat_box)
+        self.glass_box = QComboBox()
+        for key in PALETTE_ORDER:
+            self.glass_box.addItem(PALETTE_LABELS[key], key)
+        glass_index = self.glass_box.findData(values.get("palette", "amber"))
+        self.glass_box.setCurrentIndex(max(0, glass_index))
+        self.glass_box.setToolTip("The lantern, ring, and plate colours.")
+        look.addRow("Glass", self.glass_box)
+        layout.addLayout(look)
+
+        layout.addWidget(section("Everyday"))
         self.auto_talk = QCheckBox("Occasional small talk while you work")
         self.auto_talk.setChecked(bool(values.get("auto_talk", False)))
         layout.addWidget(self.auto_talk)
@@ -567,6 +604,22 @@ class CustomizeDialog(QDialog):
         self.sparkles = QCheckBox("Show typing sparks and click ripples")
         self.sparkles.setChecked(bool(values.get("mirror_particles", True)))
         layout.addWidget(self.sparkles)
+
+        layout.addWidget(section("Focus timer"))
+        self.dim_focus = QCheckBox("Dim the desk while the timer runs")
+        self.dim_focus.setChecked(bool(values.get("dim_focus", True)))
+        self.dim_focus.setToolTip("The veil appears with a timer and lifts when it ends.")
+        layout.addWidget(self.dim_focus)
+
+        layout.addWidget(section("Windows"))
+        self.launch = QCheckBox("Start with Windows when you sign in")
+        self.launch.setChecked(bool(values.get("launch_at_start", False)))
+        if autostart.supported():
+            self.launch.setToolTip("Adds one per-user startup entry. Turning this off removes it.")
+        else:
+            self.launch.setEnabled(False)
+            self.launch.setToolTip("This switch is for Windows only.")
+        layout.addWidget(self.launch)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -579,10 +632,169 @@ class CustomizeDialog(QDialog):
         return {
             "nickname": self.name_edit.text(),
             "chatter": str(self.chatter_box.currentData()),
+            "coat": str(self.coat_box.currentData()),
+            "palette": str(self.glass_box.currentData()),
             "auto_talk": self.auto_talk.isChecked(),
             "idle_animations": self.animations.isChecked(),
             "mirror_particles": self.sparkles.isChecked(),
+            "dim_focus": self.dim_focus.isChecked(),
+            "launch_at_start": self.launch.isChecked(),
         }
+
+
+class WardrobeDialog(QDialog):
+    """Earned accessories, with the locked ones and their requirements visible."""
+
+    def __init__(
+        self,
+        parent,
+        display_name: str,
+        minutes: float,
+        sessions: int,
+        streak: int,
+        equipped: str,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"{display_name}'s wardrobe")
+        self.setMinimumSize(420, 520)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setStyleSheet(
+            "QDialog { background: #161022; }"
+            "QLabel { color: #f6f1e8; font: 10pt 'Segoe UI'; }"
+            "QLabel#hint { color: rgba(246, 241, 232, 150); font: 9pt 'Segoe UI'; }"
+            "QScrollArea { border: 1px solid rgba(255, 214, 160, 40); border-radius: 9px; }"
+            "QWidget#list { background: transparent; }"
+            "QRadioButton { color: #f6f1e8; font: 10pt 'Segoe UI'; padding: 6px 4px; }"
+            "QRadioButton:disabled { color: rgba(246, 241, 232, 105); }"
+            "QPushButton {"
+            " background: rgba(255, 176, 90, 40); color: #fff6ea;"
+            " border: 1px solid rgba(255, 214, 160, 80); border-radius: 8px;"
+            " padding: 6px 16px; font: 10pt 'Segoe UI';"
+            "}"
+            "QPushButton:hover { background: rgba(255, 176, 90, 75); }"
+        )
+        earned = rewards.unlocked(minutes, sessions, streak)
+        earned_keys = {item.key for item in earned}
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setSpacing(8)
+        title = QLabel("Wardrobe")
+        title.setStyleSheet("font: 600 13pt 'Segoe UI'; color: #ffe2bd;")
+        layout.addWidget(title)
+        summary = QLabel(
+            f"{len(earned)} of {len(rewards.ACCESSORIES)} unlocked · "
+            f"{int(minutes)} focus minutes · {sessions} session{'s' if sessions != 1 else ''} · "
+            f"{streak}-day streak"
+        )
+        summary.setObjectName("hint")
+        layout.addWidget(summary)
+        following = rewards.next_locked(minutes, sessions, streak)
+        if following is not None:
+            nxt = QLabel(f"Next up: {following.label} — {following.requirement()}")
+            nxt.setObjectName("hint")
+            layout.addWidget(nxt)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        body = QWidget()
+        body.setObjectName("list")
+        rows = QVBoxLayout(body)
+        rows.setContentsMargins(10, 8, 10, 8)
+        rows.setSpacing(2)
+        self._group = QButtonGroup(self)
+        self._buttons: dict[str, QRadioButton] = {}
+        for item in rewards.ACCESSORIES:
+            row = QRadioButton(item.label)
+            if item.key not in earned_keys:
+                row.setText(f"{item.label}  ·  {item.requirement()}")
+                row.setEnabled(False)
+            row.setToolTip(item.hint or item.requirement())
+            row.setChecked(item.key == equipped)
+            self._group.addButton(row)
+            self._buttons[item.key] = row
+            rows.addWidget(row)
+        rows.addStretch(1)
+        scroll.setWidget(body)
+        layout.addWidget(scroll, 1)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def selection(self) -> str:
+        for key, button in self._buttons.items():
+            if button.isChecked():
+                return key
+        return "none"
+
+
+class FocusLogDialog(QDialog):
+    """This week's finished sessions, grouped by day."""
+
+    def __init__(self, parent, entries: list[str], current: int, best: int) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Focus log")
+        self.setMinimumSize(420, 430)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setStyleSheet(
+            "QDialog { background: #161022; }"
+            "QLabel { color: #f6f1e8; font: 10pt 'Segoe UI'; }"
+            "QLabel#hint { color: rgba(246, 241, 232, 155); font: 9pt 'Segoe UI'; }"
+            "QPlainTextEdit {"
+            " background: rgba(255, 255, 255, 0.045); color: #f6f1e8;"
+            " border: 1px solid rgba(255, 214, 160, 40); border-radius: 9px;"
+            " padding: 8px; font: 10pt 'Segoe UI';"
+            "}"
+            "QPushButton {"
+            " background: rgba(255, 176, 90, 40); color: #fff6ea;"
+            " border: 1px solid rgba(255, 214, 160, 80); border-radius: 8px;"
+            " padding: 6px 16px; font: 10pt 'Segoe UI';"
+            "}"
+            "QPushButton:hover { background: rgba(255, 176, 90, 75); }"
+        )
+        rows = focus_history.week(entries)
+        sessions = sum(row["sessions"] for row in rows)
+        minutes = sum(row["minutes"] for row in rows)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setSpacing(8)
+        title = QLabel("Focus log")
+        title.setStyleSheet("font: 600 13pt 'Segoe UI'; color: #ffe2bd;")
+        layout.addWidget(title)
+        summary = QLabel(
+            f"This week: {sessions} session{'s' if sessions != 1 else ''} · "
+            f"{minutes} min · {current}-day streak (best {best})"
+        )
+        summary.setObjectName("hint")
+        layout.addWidget(summary)
+
+        self.body = QPlainTextEdit()
+        self.body.setReadOnly(True)
+        lines: list[str] = []
+        for row in rows:
+            day = row["day"]
+            label = day.strftime("%a %d %b")
+            if row["sessions"]:
+                lines.append(
+                    f"{label}  ·  {row['sessions']} session{'s' if row['sessions'] != 1 else ''}"
+                    f"  ·  {row['minutes']} min"
+                )
+                for clock, minutes_done in row["times"]:
+                    lines.append(f"      {clock}   {minutes_done} min")
+            else:
+                lines.append(f"{label}  ·  no sessions")
+        self.body.setPlainText("\n".join(lines))
+        layout.addWidget(self.body, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
 
 
 class CompanionWindow(QWidget):
@@ -595,6 +807,14 @@ class CompanionWindow(QWidget):
         except Exception:
             log.warning("Custom buddies could not be loaded", exc_info=True)
         self.settings: Settings = load_settings()
+        # Never let a hand-edited settings file wear an accessory that was not earned.
+        current_streak, _best = focus_history.streak(self.settings.focus_log)
+        self.settings.accessory = rewards.owned_accessory(
+            self.settings.accessory,
+            self.settings.focus_minutes_total,
+            self.settings.focus_sessions,
+            current_streak,
+        )
         self._rng = random.Random()
         self._pulse: Pulse | None = None
         self._phase = 0.4
@@ -612,6 +832,16 @@ class CompanionWindow(QWidget):
         self._snap_from = QPoint()
         self._snap_to = QPoint()
         self._snap_i = 0
+        self._trick: Trick | None = None
+        self._trick_from = QPoint()
+        self._trick_amp = (0.0, 0.0)
+        self._trick_started = 0.0
+        self._trick_spin = 0.0
+        self._trick_sparkle = 0.0
+        self._trick_gesture = ""
+        self._trick_progress = 0.0
+        self._trick_next_at = time.monotonic() + self._rng.uniform(15.0, 35.0)
+        self._last_focus_tick = -1
 
         self._judge = ActivityJudge()
         self._activity = (
@@ -653,6 +883,7 @@ class CompanionWindow(QWidget):
         )
         self.rituals = RitualClock(self.settings, self)
         self._veil = VigilVeil(self.rituals, self._on_veil_lifted)
+        self._veil_dismissed = False
         self.tracker = InputTracker(self)
 
         self._build_actions()
@@ -676,6 +907,10 @@ class CompanionWindow(QWidget):
         self._snap.setInterval(16)
         self._snap.timeout.connect(self._snap_step)
 
+        self._trick_timer = QTimer(self)
+        self._trick_timer.setInterval(16)
+        self._trick_timer.timeout.connect(self._trick_step)
+
         self._refresh_labels()
         self._apply_icon()
         if listen:
@@ -688,17 +923,34 @@ class CompanionWindow(QWidget):
         self.act_today.setEnabled(False)
         self.act_activity = QAction("Hanging out", self)
         self.act_activity.setEnabled(False)
+        self.act_activity.setToolTip(
+            "Read from typing and clicking rhythm. Pin a mode under Activity."
+        )
         self.act_show = QAction("Show companion", self)
         self.act_show.triggered.connect(lambda *_: self._bring_back())
         self.act_focus = QAction("Start Focus Timer (25 min)", self)
+        self.act_focus.setToolTip("A serious, locked-in session with a countdown watch.")
         self.act_focus.triggered.connect(lambda *_: self._toggle_focus())
-        self.act_veil = QAction("Dim the lights", self)
-        self.act_veil.setCheckable(True)
-        self.act_veil.setChecked(self.settings.veil)
-        self.act_veil.setToolTip(
-            "A dim sheet over the desktop while the vigil runs. Click it to lift."
+        self.act_repeat = QAction("Go again", self)
+        self.act_repeat.setToolTip("Start another session at the same length.")
+        self.act_repeat.triggered.connect(lambda *_: self._start_focus(self.settings.focus_minutes))
+        self.act_custom_timer = QAction("Custom timer…", self)
+        self.act_custom_timer.triggered.connect(lambda *_: self._custom_focus())
+        self.act_focus_log = QAction("Session log…", self)
+        self.act_focus_log.setToolTip("This week's finished sessions and your streak.")
+        self.act_focus_log.triggered.connect(lambda *_: self._open_focus_log())
+        self._duration_actions: list[QAction] = []
+        for minutes in (5, 10, 15, 25, 30, 45, 60):
+            action = QAction(f"{minutes} min", self)
+            action.triggered.connect(partial(self._start_focus, minutes))
+            self._duration_actions.append(action)
+        self.act_dim = QAction("Dim the desk during focus", self)
+        self.act_dim.setCheckable(True)
+        self.act_dim.setChecked(self.settings.dim_focus)
+        self.act_dim.setToolTip(
+            "The veil now appears with the timer and lifts when it ends."
         )
-        self.act_veil.triggered.connect(self._toggle_veil)
+        self.act_dim.triggered.connect(self._toggle_dim)
         self.act_water = QAction("Water Reminder", self)
         self.act_water.setCheckable(True)
         self.act_water.setChecked(self.settings.water_enabled)
@@ -707,7 +959,8 @@ class CompanionWindow(QWidget):
         self.act_intention.triggered.connect(lambda *_: self._ask_intention())
         self.act_clear = QAction("Clear the line", self)
         self.act_clear.triggered.connect(lambda *_: self._set_intention(""))
-        self.act_mute = QAction("Mute alerts", self)
+        self.act_mute = QAction("Mute alerts and sounds", self)
+        self.act_mute.setToolTip("Silences the chime, focus ticks, and character cues.")
         self.act_mute.setCheckable(True)
         self.act_mute.setChecked(self.settings.muted)
         self.act_mute.triggered.connect(self._toggle_mute)
@@ -723,13 +976,14 @@ class CompanionWindow(QWidget):
 
         self.act_talk = QAction("Talk to buddy…", self)
         self.act_talk.triggered.connect(lambda *_: self._open_talk())
-        self.act_dance = QAction("Do a little dance", self)
-        self.act_dance.setToolTip("Unserious. Very important.")
-        self.act_dance.triggered.connect(lambda *_: self._dance())
+        self.act_trick = QAction("Do a trick now", self)
+        self.act_trick.setToolTip("Skip the wait and let the buddy show off.")
+        self.act_trick.triggered.connect(lambda *_: self._start_trick(time.monotonic()))
+        self.act_wardrobe = QAction("Wardrobe…", self)
+        self.act_wardrobe.setToolTip("Accessories earned by finishing focus sessions.")
+        self.act_wardrobe.triggered.connect(lambda *_: self._open_wardrobe())
         self.act_customize = QAction("Customize…", self)
         self.act_customize.triggered.connect(lambda *_: self._customize())
-        self.act_reload = QAction("Reload custom buddies", self)
-        self.act_reload.triggered.connect(lambda *_: self._reload_custom())
 
         self._activity_group = QActionGroup(self)
         self._activity_group.setExclusive(True)
@@ -796,16 +1050,27 @@ class CompanionWindow(QWidget):
             buddies.addAction(action)
         buddies.addSeparator()
         buddies.addAction(self.act_next_buddy)
-        buddies.addAction(self.act_reload)
         activity = menu.addMenu("Activity")
         activity.setStyleSheet(MENU_QSS)
         for action in self._activity_actions.values():
             activity.addAction(action)
         menu.addAction(self.act_talk)
-        menu.addAction(self.act_dance)
+        menu.addAction(self.act_trick)
+        menu.addAction(self.act_wardrobe)
         menu.addAction(self.act_customize)
-        menu.addAction(self.act_focus)
-        menu.addAction(self.act_veil)
+        menu.addSeparator()
+        focus = menu.addMenu("Focus")
+        focus.setStyleSheet(MENU_QSS)
+        focus.addAction(self.act_focus)
+        focus.addSeparator()
+        for action in self._duration_actions:
+            focus.addAction(action)
+        focus.addAction(self.act_custom_timer)
+        focus.addSeparator()
+        focus.addAction(self.act_repeat)
+        focus.addAction(self.act_dim)
+        focus.addSeparator()
+        focus.addAction(self.act_focus_log)
         menu.addAction(self.act_water)
         menu.addSeparator()
         menu.addAction(self.act_intention)
@@ -823,7 +1088,9 @@ class CompanionWindow(QWidget):
 
     def _build_tray(self) -> None:
         self._tray = QSystemTrayIcon(self)
-        self._tray.setIcon(build_tray_icon(self.settings.palette, self.settings.character))
+        self._tray.setIcon(
+            build_tray_icon(self.settings.palette, self.settings.character, self.settings.coat)
+        )
         self._refresh_tray_menu()
         self._tray.activated.connect(self._tray_activated)
         self._tray.show()
@@ -870,7 +1137,9 @@ class CompanionWindow(QWidget):
                 f"{display} · {self._activity_label()} · {minutes} min today"
             )
         )
-        self.act_today.setText(f"Today: {minutes} min of glimmer")
+        streak_now, _best = focus_history.streak(self.settings.focus_log)
+        streak_note = f" · {streak_now}-day streak" if streak_now >= 2 else ""
+        self.act_today.setText(f"Today: {minutes} min of glimmer{streak_note}")
         self.act_activity.setText(f"{display} · {self._activity_label()}")
         self.act_talk.setText(f"Talk to {display}…")
         for action, key in zip(self._buddy_actions, CHARACTER_ORDER):
@@ -881,13 +1150,19 @@ class CompanionWindow(QWidget):
             remaining = self.rituals.focus_remaining()
             self.act_focus.setText(f"End Focus Timer ({remaining // 60}:{remaining % 60:02d})")
         else:
-            self.act_focus.setText("Start Focus Timer (25 min)")
+            self.act_focus.setText(f"Start Focus Timer ({self.settings.focus_minutes} min)")
+        self.act_repeat.setText(f"Go again ({self.settings.focus_minutes} min)")
+        self.act_repeat.setEnabled(not self.rituals.focus_active())
+        self.act_dim.setChecked(self.settings.dim_focus)
+        earned = rewards.unlocked(
+            self.settings.focus_minutes_total, self.settings.focus_sessions, streak_now
+        )
+        self.act_wardrobe.setText(f"Wardrobe… ({len(earned)}/{len(rewards.ACCESSORIES)})")
         self.act_water.setChecked(self.settings.water_enabled)
         self.act_mute.setChecked(self.settings.muted)
         self.act_ghost.setChecked(self.settings.click_through)
+        self.act_trick.setEnabled(self._trick is None)
         self.act_clear.setEnabled(bool(self.settings.intention))
-        self.act_veil.setEnabled(True)
-        self.act_veil.setChecked(self._veil.isVisible())
         if self._tray is not None:
             week = glimmer.week_minutes(self.settings)
             self._tray.setToolTip(
@@ -899,7 +1174,9 @@ class CompanionWindow(QWidget):
             )
 
     def _apply_icon(self) -> None:
-        icon = build_tray_icon(self.settings.palette, self.settings.character)
+        icon = build_tray_icon(
+            self.settings.palette, self.settings.character, self.settings.coat
+        )
         self.setWindowIcon(icon)
         if self._tray is not None:
             self._tray.setIcon(icon)
@@ -909,38 +1186,70 @@ class CompanionWindow(QWidget):
     def _on_rituals_updated(self) -> None:
         if not self.rituals.focus_active() and self._veil.isVisible():
             self._lift_veil()
+        if self.rituals.focus_active():
+            remaining = self.rituals.focus_remaining()
+            if remaining > 0 and remaining % 60 == 0 and remaining != self._last_focus_tick:
+                self._last_focus_tick = remaining
+                self._play_sound("tick")
+        else:
+            self._last_focus_tick = -1
         self.update()
 
-    def _toggle_focus(self) -> None:
-        if self.rituals.focus_active():
-            self.rituals.cancel_focus()
-            self._lift_veil()
-            self._say("Vigil set down.")
+    def _start_focus(self, minutes: int) -> None:
+        """Begin a session of a chosen length, 5 to 60 minutes."""
+        minutes = max(5, min(60, int(minutes)))
+        self._cancel_trick()
+        self.settings.focus_minutes = minutes
+        self.rituals.start_focus(minutes * 60)
+        self._veil_dismissed = False
+        self._last_focus_tick = minutes * 60
+        self._speak("focus_start", force=True)
+        if self.settings.dim_focus:
+            QTimer.singleShot(0, self._show_veil)
         else:
-            self.rituals.start_focus()
-            self._speak("focus_start", force=True)
-            if self.settings.veil:
-                QTimer.singleShot(0, self._show_veil)
+            self._veil.lift()
+        self._save()
         self._refresh_labels()
         self.update()
 
-    def _toggle_veil(self, checked=None) -> None:
-        if not isinstance(checked, bool):
-            checked = self.act_veil.isChecked()
-        self.settings.veil = bool(checked)
-        self._save()
-        if checked:
-            if not self.rituals.focus_active():
-                self.rituals.start_focus()
-                self._speak("focus_start", force=True)
-            self._show_veil()
+    def _toggle_focus(self) -> None:
+        self._cancel_trick()
+        if self.rituals.focus_active():
+            self.rituals.cancel_focus()
+            self._lift_veil()
+            self._say("Vigil set down. Nothing counted.")
         else:
+            self._start_focus(self.settings.focus_minutes)
+        self._refresh_labels()
+        self.update()
+
+    def _custom_focus(self) -> None:
+        value = max(5, min(60, int(self.settings.focus_minutes)))
+        minutes, accepted = QInputDialog.getInt(
+            self, "Focus timer", "Minutes (5–60):", value, 5, 60, 5
+        )
+        if accepted:
+            self._start_focus(minutes)
+
+    def _toggle_dim(self, checked=None) -> None:
+        if not isinstance(checked, bool):
+            checked = self.act_dim.isChecked()
+        self.settings.dim_focus = bool(checked)
+        self._save()
+        if checked and self.rituals.focus_active():
+            self._veil_dismissed = False
+            self._show_veil()
+        elif not checked:
             self._veil.lift()
         self._refresh_labels()
         self.update()
 
     def _show_veil(self) -> None:
-        if not self.rituals.focus_active():
+        if (
+            not self.rituals.focus_active()
+            or not self.settings.dim_focus
+            or self._veil_dismissed
+        ):
             return
         self._veil.greet()
         # The moth sits above the sheet so the timer stays visible and draggable.
@@ -949,14 +1258,13 @@ class CompanionWindow(QWidget):
 
     def _lift_veil(self) -> None:
         self._veil.lift()
-        self.act_veil.setChecked(False)
 
     def _on_veil_lifted(self) -> None:
-        self.settings.veil = False
-        self._save()
+        # Lifting the sheet is per-session; dimming stays a timer preference.
+        self._veil_dismissed = True
         self._veil.lift()
-        self.act_veil.setChecked(False)
         self._say("Veil lifted. The timer keeps its own count.")
+        self._refresh_labels()
 
     def _toggle_water(self, checked=None) -> None:
         if not isinstance(checked, bool):
@@ -1047,9 +1355,12 @@ class CompanionWindow(QWidget):
         values = {
             "nickname": self.settings.nickname,
             "chatter": self.settings.chatter,
+            "coat": self.settings.coat,
             "auto_talk": self.settings.auto_talk,
             "idle_animations": self.settings.idle_animations,
             "mirror_particles": self.settings.mirror_particles,
+            "dim_focus": self.settings.dim_focus,
+            "launch_at_start": autostart.is_enabled(),
         }
         dialog = CustomizeDialog(self, buddy.name, values)
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -1062,8 +1373,26 @@ class CompanionWindow(QWidget):
         self.settings.auto_talk = bool(chosen.get("auto_talk"))
         self.settings.idle_animations = bool(chosen.get("idle_animations"))
         self.settings.mirror_particles = bool(chosen.get("mirror_particles"))
+        coat = chosen.get("coat")
+        if coat in COAT_LABELS:
+            self.settings.coat = str(coat)
+        palette = chosen.get("palette")
+        if palette in PALETTE_LABELS:
+            self.settings.palette = str(palette)
+        self.settings.dim_focus = bool(chosen.get("dim_focus", True))
+        if not self.settings.dim_focus:
+            self._veil.lift()
+        elif self.rituals.focus_active():
+            self._veil_dismissed = False
+            self._show_veil()
+        wanted_start = bool(chosen.get("launch_at_start"))
+        if autostart.supported() and wanted_start != autostart.is_enabled():
+            if not autostart.set_enabled(wanted_start):
+                self._say("Windows kept the old startup setting. The log has details.")
+        self.settings.launch_at_start = autostart.is_enabled()
         self._chatter.set_min_gap(self._chatter_gap())
         self._next_smalltalk_at = time.monotonic() + 30.0
+        self._apply_icon()
         self._save()
         self._refresh_labels()
         self.update()
@@ -1072,39 +1401,64 @@ class CompanionWindow(QWidget):
         else:
             self._say(f"Back to {buddy.name}. Comfortable.")
 
-    def _open_buddy_folder(self) -> None:
-        try:
-            folder = make_template()
-        except OSError:
-            self._say("I couldn't open the buddy folder. Check your app data folder.")
+    def _open_wardrobe(self) -> None:
+        streak_now, _best = focus_history.streak(self.settings.focus_log)
+        dialog = WardrobeDialog(
+            self,
+            self._display_name(),
+            self.settings.focus_minutes_total,
+            self.settings.focus_sessions,
+            streak_now,
+            self.settings.accessory,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
-        self._say("Add a folder with buddy.json, then Reload custom buddies.")
-
-    def _reload_custom(self) -> None:
-        try:
-            found = install_custom_buddies()
-        except Exception:
-            log.warning("Custom buddies could not be reloaded", exc_info=True)
-            self._say("Those buddy files wouldn't load. The log has the details.")
-            return
-        if self.settings.character not in CHARACTERS:
-            self._set_character("moth")
-        self._build_buddy_actions()
-        self._refresh_tray_menu()
-        self._sprites.refresh_if_due(force=True)
+        self.settings.accessory = rewards.owned_accessory(
+            dialog.selection(),
+            self.settings.focus_minutes_total,
+            self.settings.focus_sessions,
+            streak_now,
+        )
+        self._save()
         self._refresh_labels()
         self.update()
-        if found:
-            plural = "buddy" if len(found) == 1 else "buddies"
-            self._say(f"Loaded {len(found)} custom {plural}. Say hello.")
-        else:
-            self._say("No custom buddies yet. Add a folder with buddy.json.")
+        item = rewards.BY_KEY.get(self.settings.accessory)
+        if item is not None and item.key != "none":
+            self._say(f"{item.label} it is.")
+
+    def _open_focus_log(self) -> None:
+        current, best = focus_history.streak(self.settings.focus_log)
+        dialog = FocusLogDialog(self, self.settings.focus_log, current, best)
+        dialog.exec()
 
     def _on_focus_finished(self) -> None:
+        minutes = self.rituals.focus_total_minutes()
+        before_streak, _best = focus_history.streak(self.settings.focus_log)
+        before = rewards.unlocked(
+            self.settings.focus_minutes_total, self.settings.focus_sessions, before_streak
+        )
+        self.settings.focus_log = focus_history.record(self.settings.focus_log, minutes)
+        self.settings.focus_sessions += 1
+        self.settings.focus_minutes_total += float(minutes)
+        streak_now, _best_now = focus_history.streak(self.settings.focus_log)
+        after = rewards.unlocked(
+            self.settings.focus_minutes_total, self.settings.focus_sessions, streak_now
+        )
+        gained = rewards.newly_unlocked(before, after)
+        if gained:
+            # Wear the newest reward right away, so finishing visibly changes.
+            self.settings.accessory = gained[0].key
         self._celebrate_until = time.monotonic() + 6.0
         self._lift_veil()
-        self._alert_situation("focus_done", "Twenty-five minutes kept. Look up.")
+        line = self._chatter.say(
+            self.settings.character, "focus_done", now=time.monotonic(), force=True
+        ) or f"{minutes} minutes kept. Look up."
+        if streak_now >= 2:
+            line = f"{line} {streak_now}-day streak."
+        if gained:
+            line = f"{line} ✦ {gained[0].label} unlocked — check the wardrobe."
+        self._alert(line)
+        self._save()
         self._refresh_labels()
         self.update()
 
@@ -1131,6 +1485,7 @@ class CompanionWindow(QWidget):
                 pulse.idle_seconds,
                 wide_keys=pulse.wide_key_count / wide_span,
                 wide_clicks=pulse.wide_click_count / wide_span,
+                buckets=pulse.buckets,
             )
         )
 
@@ -1175,11 +1530,146 @@ class CompanionWindow(QWidget):
         self._refresh_labels()
         self.update()
 
-    def _dance(self) -> None:
-        self._celebrate_until = time.monotonic() + 4.0
-        self._speak("poke", force=True)
-        self._say("Fine. One (1) very serious dance.")
-        self._refresh_labels()
+    # --- little performances -------------------------------------------
+
+    def _maybe_trick(self, now: float) -> None:
+        """Start a trick now and then, but never while the desk needs quiet."""
+        if self._trick is not None or now < self._trick_next_at:
+            return
+        if (
+            not self.settings.idle_animations
+            or self.settings.click_through
+            or self.rituals.focus_active()
+            or self._activity == AWAY
+        ):
+            self._trick_next_at = now + 30.0
+            return
+        self._start_trick(now)
+
+    def _start_trick(self, now: float) -> None:
+        if self._dragging:
+            return
+        self._cancel_trick()
+        shape = get_character(self.settings.character).body_shape
+        pool = list(tricks_for(shape))
+        if self._near_edge():
+            # Beside a screen edge, peeking and dashing make more sense.
+            pool.extend((PEEK, DASH))
+        # Signature performances first: a watcher should see the moth hover and
+        # the cat groom within a couple of minutes, not once in twenty.
+        signature = [item for item in pool if item.gesture]
+        if signature and self._rng.random() < 0.7:
+            trick = self._rng.choice(signature)
+        else:
+            trick = self._rng.choice(pool)
+        origin = self.pos()
+        self._snap.stop()
+        self._trick = trick
+        self._trick_started = now
+        self._trick_from = origin
+        self._trick_amp = self._trick_amplitude(trick, origin)
+        self._trick_spin = 0.0
+        self._trick_sparkle = 0.0
+        self._trick_gesture = trick.gesture
+        self._trick_progress = 0.0
+        if trick.gesture:
+            self._play_sound(trick.gesture)
+        self._trick_timer.start()
+        self._speak("trick")
+        self.update()
+
+    def _near_edge(self, margin: float = 150.0) -> bool:
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None:
+            return False
+        geo = screen.availableGeometry()
+        return (
+            min(
+                abs(self.x() - geo.left()),
+                abs(geo.right() - (self.x() + self.width())),
+                abs(self.y() - geo.top()),
+                abs(geo.bottom() - (self.y() + self.height())),
+            )
+            <= margin
+        )
+
+    def _trick_amplitude(self, trick: Trick, origin: QPoint) -> tuple[float, float]:
+        """Where and how far this trick carries the perch."""
+        screen = self.screen() or QApplication.primaryScreen()
+        geo = screen.availableGeometry() if screen is not None else QRect(0, 0, 1280, 720)
+        if trick.key == "dash":
+            angle = self._rng.uniform(0.0, math.tau)
+            reach = self._rng.uniform(90.0, 230.0)
+            target_x = origin.x() + math.cos(angle) * reach
+            target_y = origin.y() + math.sin(angle) * reach * 0.7
+            target_x, target_y = self._clamp_to_screen(round(target_x), round(target_y))
+            # If the landing spot is already near an edge, finish flush against
+            # it: a desk companion perches on edges, it does not float nearby.
+            if self._rng.random() < 0.5:
+                if origin.x() < geo.center().x() and target_x - geo.left() < 300:
+                    target_x = geo.left() + 6
+                elif target_x + self.width() > geo.right() - 300:
+                    target_x = geo.right() - self.width() - 6
+            return float(target_x - origin.x()), float(target_y - origin.y())
+        if trick.key == "peek":
+            # Lean toward the nearest side of the screen, then settle back.
+            left_gap = origin.x() - geo.left()
+            right_gap = geo.right() - (origin.x() + self.width())
+            if left_gap <= right_gap:
+                return -min(88.0, max(34.0, left_gap + 46.0)), 0.0
+            return min(88.0, max(34.0, right_gap + 46.0)), 0.0
+        if trick.key == "orbit":
+            return self._rng.choice((-1.0, 1.0)) * self._rng.uniform(20.0, 30.0), self._rng.uniform(12.0, 20.0)
+        if trick.key == "wiggle":
+            return self._rng.uniform(9.0, 16.0), 0.0
+        return 0.0, self._rng.uniform(14.0, 22.0)
+
+    def _trick_step(self) -> None:
+        trick = self._trick
+        if trick is None:
+            self._trick_timer.stop()
+            return
+        progress = (time.monotonic() - self._trick_started) / max(0.1, trick.duration)
+        if progress >= 1.0:
+            self._finish_trick()
+            return
+        dx, dy, spin, sparkle = sample_trick(trick.key, progress, self._trick_amp)
+        x = round(self._trick_from.x() + dx)
+        y = round(self._trick_from.y() + dy)
+        self.move(*self._clamp_to_screen(x, y))
+        self._trick_spin = spin
+        self._trick_sparkle = sparkle
+        self._trick_progress = progress
+        self.update()
+
+    def _finish_trick(self) -> None:
+        trick = self._trick
+        self._trick_timer.stop()
+        if trick is not None:
+            dx, dy, _spin, _sparkle = sample_trick(trick.key, 1.0, self._trick_amp)
+            x = round(self._trick_from.x() + dx)
+            y = round(self._trick_from.y() + dy)
+            self.move(*self._clamp_to_screen(x, y))
+        self._trick = None
+        self._trick_spin = 0.0
+        self._trick_sparkle = 0.0
+        self._trick_gesture = ""
+        self._trick_progress = 0.0
+        self._remember_pos()
+        self._trick_next_at = time.monotonic() + self._rng.uniform(30.0, 75.0)
+        self.update()
+
+    def _cancel_trick(self) -> None:
+        """Stop mid-trick and stay wherever the buddy happens to be."""
+        if self._trick is None:
+            return
+        self._trick_timer.stop()
+        self._trick = None
+        self._trick_spin = 0.0
+        self._trick_sparkle = 0.0
+        self._trick_gesture = ""
+        self._trick_progress = 0.0
+        self._remember_pos()
         self.update()
 
     def _speak(self, situation: str, *, force: bool = False) -> None:
@@ -1212,6 +1702,12 @@ class CompanionWindow(QWidget):
             QApplication.beep()
         if self._tray is not None:
             self._tray.showMessage("DeskCompy", text, QSystemTrayIcon.MessageIcon.Information, 5000)
+
+    def _play_sound(self, name: str) -> None:
+        """Soft cues share the mute switch with alerts; silence is fine."""
+        if self.settings.muted:
+            return
+        sounds.play(name)
 
     def _say(self, text: str) -> None:
         if not self.isVisible():
@@ -1292,6 +1788,7 @@ class CompanionWindow(QWidget):
         if now - self._ambient_at >= 20.0:
             self._ambient_at = now
             self._ambient()
+        self._maybe_trick(now)
         self._maybe_smalltalk(now)
         self.update()
 
@@ -1359,7 +1856,7 @@ class CompanionWindow(QWidget):
         if self._visual() == FOCUS:
             glow = max(glow, 0.55)
         glow *= self._hush()
-        return min(1.0, glow + 0.25 * self._celebrate())
+        return min(1.0, glow + 0.25 * self._celebrate() + 0.3 * self._trick_sparkle)
 
     def _hush(self) -> float:
         """Dip the lantern just before the chime, then let it come back up."""
@@ -1411,7 +1908,13 @@ class CompanionWindow(QWidget):
             mirror=self._mirror if self.settings.mirror_particles else None,
             history=glimmer.week(self.settings),
             display_name=self._display_name(),
+            coat=self.settings.coat,
+            accessory=self.settings.accessory,
             animate=self.settings.idle_animations,
+            spin=self._trick_spin,
+            sparkle=self._trick_sparkle,
+            gesture=self._trick_gesture,
+            gesture_t=self._trick_progress,
         )
         painter.end()
 
@@ -1433,6 +1936,7 @@ class CompanionWindow(QWidget):
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton and self._contains(event.position().toPoint()):
+            self._cancel_trick()
             self._dragging = True
             self._snap.stop()
             self._press_at = event.globalPosition().toPoint()
@@ -1588,14 +2092,21 @@ class CompanionWindow(QWidget):
 
     def nativeEvent(self, event_type, message):  # noqa: N802
         if sys.platform == "win32":
-            if event_type == b"windows_generic_MSG":
+            try:
+                kind = bytes(event_type)
+            except Exception:
+                kind = b""
+            if kind == b"windows_generic_MSG":
                 try:
                     msg = ctypes.wintypes.MSG.from_address(int(message))
                     if msg.message == WM_NCHITTEST:
-                        # Use the point already present in this message. Asking
-                        # Windows for the cursor again on every hit-test adds
-                        # needless work and can re-enter Qt's message pump.
-                        local = self.mapFromGlobal(QPoint(msg.pt.x, msg.pt.y))
+                        # WM_NCHITTEST is sent, not posted, so MSG.pt is stale
+                        # here. Ask for the cursor instead; it comes in the
+                        # logical coordinates mapFromGlobal expects, even on a
+                        # scaled display. Getting this wrong makes the whole
+                        # perch click-through, which also swallows drags and
+                        # the right-click menu.
+                        local = self.mapFromGlobal(QCursor.pos())
                         if self.settings.click_through or not self._contains(local):
                             return True, HTTRANSPARENT
                 except Exception:
@@ -1614,6 +2125,8 @@ class CompanionWindow(QWidget):
         self._down = True
         self._anim.stop()
         self._snap.stop()
+        self._trick_timer.stop()
+        self._trick = None
         if self.isVisible():
             self.settings.x = self.x()
             self.settings.y = self.y()

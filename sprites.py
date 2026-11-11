@@ -14,6 +14,7 @@ cache refreshes when the user reloads custom buddies or switches characters.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
